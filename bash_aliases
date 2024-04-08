@@ -4,6 +4,7 @@
 alias ll='ls -alF'
 alias la='ls -A'
 alias l='ls -CF'
+alias get_chmod="stat --format '%a'"
 
 # accounts
 alias mfs="switch_user mfs"
