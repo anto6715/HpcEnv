@@ -15,7 +15,6 @@ alias guu="git fetch && git pull"
 
 # conda/mamba envs
 ## set mamba as default
-alias conda="mamba"
-alias ccylc="conda activate myenvcylc_v0.1"
-alias cbase="conda activate base"
-alias cenv="conda activate myenv5_v0.1"
+alias ccylc="mamba activate myenvcylc_v0.2"
+alias cbase="mamba activate base"
+alias cenv="mamba activate myenv5_v0.1"
