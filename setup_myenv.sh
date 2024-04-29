@@ -7,3 +7,5 @@ for to_load in "${TO_LOAD[@]}"; do
     # shellcheck source=.
     . "${script_dir}/${to_load}"
 done
+
+export PATH="${script_dir}/bin:${PATH}"
