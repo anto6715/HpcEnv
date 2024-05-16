@@ -7,7 +7,8 @@ install_mamba() {
 export -f install_mamba
 
 function myw() {
-    local usr; usr=$(whoami)
+    local usr
+    usr=$(whoami)
     local work_path
 
     if [ "${HPC_SYSTEM}" == "juno" ]; then
@@ -28,7 +29,8 @@ function myw() {
 export -f myw
 
 function myd() {
-    local usr; usr=$(whoami)
+    local usr
+    usr=$(whoami)
     local data_path
 
     if [ "${HPC_SYSTEM}" == "juno" ]; then
@@ -60,4 +62,5 @@ function tui_fc() {
     cylc tui "nrt_efs/b${bulletin_day}"
 }
 export -f tui_fc
-
+#brequeue -e # se fallit
+#brequeue
