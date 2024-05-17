@@ -1,0 +1,70 @@
+#!/usr/bin/expect -f
+
+################################################################################
+##
+## Usage:
+##
+## SSH to login1:
+## juno.exp
+## juno.exp 1
+##
+## SSH to login2:
+## juno.exp 2
+##
+## SCP:
+## juno.exp src dst
+##
+################################################################################
+
+## The names you have defined in your ~/.ssh/config, or the extended verbose
+## hostnames, username included (for instance yourname@login1.juno.cmcc.scc)
+set login1 "juno-login1"
+set login2 "juno-login2"
+
+## If you don't have "pass" installed (but you should!), replace "authenticator"
+## and "factor1" with their actual values
+set authenticator [exec pass cmcc/juno/authenticator]
+set user [exec pass cmcc/juno/user | head -1]
+set factor1 [exec pass cmcc/juno/password | head -1]
+set factor2 [exec oathtool --totp=sha1 -b $authenticator]
+
+set min 8083
+set max 8183
+set sshPort [expr {int($min + rand() * ($max - $min + 1))}]
+
+set timeout 20
+
+set cmd [lindex $argv 0]
+
+if { $cmd == "" || $cmd == "1" } {
+    spawn ssh $login1
+} elseif { $cmd == "2" } {
+    spawn ssh $login2
+} elseif { $cmd == "pfw" } {
+    puts "Forwarding port: $sshPort"
+    spawn ssh -t -L ${sshPort}:localhost:${sshPort} $login1
+} else {
+    set src $cmd
+    set dst [lindex $argv 1]
+    if { $dst == "" } {
+        puts "juno.exp scp: destination is empty, exiting."
+        exit 1
+    }
+    spawn scp $src $dst
+}
+
+#let pty slave device aware of WINCH signal
+trap {
+ set rows [stty rows]
+ set cols [stty columns]
+ stty rows $rows columns $cols < $spawn_out(slave,name)
+} WINCH
+
+expect "First Factor:" {
+    send -- "$factor1\r"
+    expect "Second Factor:" {
+        send -- "$factor2\r"
+    }
+}
+
+interact
