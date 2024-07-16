@@ -44,19 +44,19 @@ def get_args(raw_args=None) -> Namespace:
 
 def find_latest_model_dir(base_path: Path) -> Optional[Path]:
     # Get a list of all directories named 'model' in the subdirectories
-    dirs = glob.glob(os.path.join(base_path, "*/model"))
+    nemos = glob.glob(os.path.join(base_path, "*/model/nemo"))
 
     # If no directories are found, return None
-    if not dirs:
+    if not nemos:
         return None
 
     # Get the modification time for each directory
-    dirs_with_mtime = [(d, os.path.getmtime(d)) for d in dirs]
+    dirs_with_mtime = [(n, os.lstat(n).st_mtime) for n in nemos]
 
     # Sort directories by modification time (newest first)
-    latest_dir = max(dirs_with_mtime, key=lambda x: x[1])[0]
+    latest_nemo = max(dirs_with_mtime, key=lambda x: x[1])[0]
 
-    return Path(latest_dir)
+    return Path(latest_nemo).parent
 
 
 def is_in_file(str_to_check: str, file_path: Path) -> bool:
