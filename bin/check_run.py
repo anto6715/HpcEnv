@@ -70,12 +70,13 @@ def is_in_file(str_to_check: str, file_path: Path) -> bool:
     return False
 
 
-def send_alert(experiment_dir: Path, latest_nemo_dir: Path):
+def send_alert(experiment_dir: Path, latest_nemo_dir: Path, stuck: bool, started: bool):
     # Usage example
     subject = "RUN MONITORING"
     body = f"""
 Monitoring report: 
-    - Status: STUCK
+    - Stuck: {stuck}
+    - Started: {started}
     - User: {getpass.getuser()}
     - Experiment dir: {experiment_dir}
     - Latest NEMO dir: {latest_nemo_dir}
@@ -127,22 +128,26 @@ def main(raw_args: List["str"] = None):
 
     latest_nemo_dir = find_latest_model_dir(experiment_dir)
     if latest_nemo_dir is None:
-        raise ValueError(f"No nemo directory found in {experiment_dir}")
-    run_stuck = is_in_file(latest_nemo_dir.as_posix(), checkpoint)
+        run_started = False
+        run_stuck = True
+    else:
+        run_started = True
+        run_stuck = is_in_file(latest_nemo_dir.as_posix(), checkpoint)
 
     ########################
     # UPDATE CHECKPOINT
     ########################
-    with checkpoint.open(mode="a") as f:
-        timestamp = datetime.now().strftime("%Y%m%dT%H:%M:%S")
-        new_str = f"[{timestamp}] - {latest_nemo_dir.as_posix()}\n"
-        f.write(new_str)
+    if run_started:
+        with checkpoint.open(mode="a") as f:
+            timestamp = datetime.now().strftime("%Y%m%dT%H:%M:%S")
+            new_str = f"[{timestamp}] - {latest_nemo_dir.as_posix()}\n"
+            f.write(new_str)
 
     ########################
     # ALERTING
     ########################
-    if run_stuck:
-        send_alert(experiment_dir, latest_nemo_dir)
+    if run_stuck or not run_started:
+        send_alert(experiment_dir, latest_nemo_dir, run_stuck, run_started)
 
 
 if __name__ == "__main__":
