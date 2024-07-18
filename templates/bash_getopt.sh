@@ -1,24 +1,40 @@
 #! /usr/bin/env bash
 
+################################################################################
 #
-# Author: Antonio Mariani
+# Common template to start a bash development
 #
-#% Common template to start a bash development
+# MM YYYY
+# NAME SURNAME (email)
 #
+################################################################################
 
 
-#+++ Bash settings
+########################
+#
+# BASH SETTINGS
+#
+########################
 set -o errexit  # abort on nonzero exitstatus
 set -o nounset  # abort on unbound variable
 set -o pipefail # don't hide errors within pipes
-#---
 
-#+++ Variables
+
+########################
+#
+# VARIABLES
+#
+########################
 script_name=$(basename "${0}")
 script_dir=$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )
 readonly script_name script_dir
-#---
 
+
+########################
+#
+# FUNCTIONS
+#
+########################
 main() {
     local parsed_arguments
     parsed_arguments=$(getopt -o h --long help -- "$@") || usage
@@ -37,7 +53,6 @@ main() {
     # do stuff here
 }
 
-#+++ Functions
 usage() {
     cat 2>&1 << HELPMSG
 
@@ -54,6 +69,5 @@ check_args() {
         usage
     fi
 }
-#---
 
 main "${@}"
