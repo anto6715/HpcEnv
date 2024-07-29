@@ -73,6 +73,6 @@ function 2fa_juno() {
     sleep 45
     echo -n | xclip -selection clipboard
 }
-export -f twofa_juno
+export -f 2fa_juno
 #brequeue -e # se fallit
 #brequeue
