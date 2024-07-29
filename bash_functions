@@ -70,8 +70,8 @@ function 2fa_juno() {
     echo "${second_fact}" | xclip -selection clipboard
     echo "Copied OTP code to clipboard. Will clear in 45 seconds."
 
-    sleep 45
-    echo -n | xclip -selection clipboard
+    (sleep 45 && echo -n | xclip -selection clipboard &)
+
 }
 export -f 2fa_juno
 #brequeue -e # se fallit
