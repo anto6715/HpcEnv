@@ -31,7 +31,7 @@ trap {
  stty rows $rows columns $cols < $spawn_out(slave,name)
 } WINCH
 
-spawn kinit -n
+#spawn kinit -n
 spawn kinit -T "FILE:/tmp/krb5cc_$id_user" "${user}"
 expect "Enter OTP Token Value: " {
     send -- "$factor1$factor2\r"
