@@ -1,17 +1,58 @@
 #!/usr/bin/env python
 
+__author__ = "Antonio Mariani"
+__email__ = "antonio.mariani@cmcc.it"
+__version__ = "0.1.0"
+
 import os
 import re
+import sys
+import logging
+from pathlib import Path
+
 import xarray as xr
 import numpy as np
-from collections.abc import Sequence
+import pandas as pd
 
-OK_MESSAGE = "OK"
-FAIL_MESSAGE = "FAIL"
+from collections import namedtuple
+from collections.abc import Sequence, Iterable
+from typing import Optional, List
+
+
+# settings
+logging.basicConfig(
+        level=logging.WARNING,
+        format='[%(asctime)s] - %(levelname)s: %(message)s',
+        # format='[%(asctime)s] - %(levelname)s - %(name)s.%(funcName)s: %(message)s',
+        handlers=[
+            # logging.FileHandler('example.log')    # to create a log files
+            logging.StreamHandler()
+        ]
+    )
+logger = logging.getLogger('compare')
+
+PASS = "PASSED"
+FAIL = "FAILED"
 DEFAULT_MAXDEPTH = 1  # negative value remove the limit on
-DEBUG_ACTIVE = False
-DEFAULT_FILENAME = ".nc"
+DEFAULT_NAME_TO_COMPARE = ".nc"
 DTYPE_NOT_CHECKED = ["S8", "S1", "O"]  # S8|S1:char, O: string
+TIME_DTYPE = ["datetime64[ns]", "<M8[ns]"]
+
+COMPARE_MESSAGE = namedtuple(
+    'CompareMessage',
+    [
+        'result',
+        'relative_error',
+        'min_diff',
+        'max_diff',
+        'mask_equal',
+        'file1',
+        'file2',
+        'variable',
+        'description'
+    ],
+    defaults=['-' for _ in range(9)]
+)
 
 
 def get_args(raw_args=None):
@@ -21,7 +62,7 @@ def get_args(raw_args=None):
     # General args
     parse.add_argument('folder1', type=str, help="Path of first folder to compare")
     parse.add_argument('folder2', type=str, help="Path of second folder to compare")
-    parse.add_argument('--name', type=str, default=DEFAULT_FILENAME,
+    parse.add_argument('--name', type=str, default=DEFAULT_NAME_TO_COMPARE,
                        help="Name of the files to compare."
                             "It can be a sub-set of the complete name or a regex expression")
     parse.add_argument('--maxdepth', type=int, default=DEFAULT_MAXDEPTH,
@@ -30,7 +71,11 @@ def get_args(raw_args=None):
     parse.add_argument('--common_pattern', type=str, default=None,
                        help="Common file pattern in two files to compare. "
                             "Es mfsX_date.nc and expX_date.nc -> date.nc is the common part")
-    parse.add_argument('--variables', nargs='+', help="Variable to compare")
+    parse.add_argument('--variables', nargs='+', default=None, help="Variable to compare")
+    parse.add_argument('-v', dest="verbose_level", default=3, type=int,
+                       help="Verbose level from 1 (CRITICAL) to 5 (logger.debug). Default is 2 (ERROR)")
+    parse.add_argument('--last_time_step', dest='last_time_step', action='store_true', default=False,
+                       help='If True, compare only the last time step available in each file')
 
     return parse.parse_args(raw_args)
 
@@ -42,14 +87,9 @@ def all_match_are_satisfied(matching_strings: tuple, file2: str):
         if match not in file2:
             return False
         else:
-            debug(f"Found {match} in {file2}")
+            logger.debug(f"Found {match} in {file2}")
 
     return True
-
-
-def debug(input_str):
-    if DEBUG_ACTIVE:
-        print(input_str)
 
 
 def get_match(pattern, string):
@@ -79,6 +119,7 @@ def get_file_list_to_compare_with_match(sequence1: Sequence, sequence2, match_pa
 
     Returns: A list of tuple. Each tuple contains two files that have the same value in correspondence of match_pattern
     """
+    not_found = 0
     match_list = list()
     for file in sequence1:
         matching_strings = get_match(match_pattern, file)
@@ -88,16 +129,17 @@ def get_file_list_to_compare_with_match(sequence1: Sequence, sequence2, match_pa
                 filename2 = os.path.basename(file2)
                 if all_match_are_satisfied(matching_strings, filename2):
                     match_found = True
-                    debug(f"Found two files that match")
-                    debug(f"\t- {file}")
-                    debug(f"\t- {file2}")
+                    logger.debug(f"Found two files that match")
+                    logger.debug(f"\t- {file}")
+                    logger.debug(f"\t- {file2}")
                     match_list.append((file, file2))
             if not match_found:
-                debug(f"FAIL File to compare with {file} NOT FOUND")
+                print(f"{FAIL} No matching found for {file}")
+                not_found += 1
         else:
-            debug(f"The file {file} doesn't match with {match_pattern}")
+            logger.debug(f"The file {file} doesn't match with {match_pattern}")
 
-    return match_list
+    return match_list, not_found
 
 
 def walklevel(input_dir, level=1):
@@ -115,79 +157,192 @@ def walklevel(input_dir, level=1):
 
 
 def get_file_list_to_compare(nc_file_list1: list, nc_file_list2: list):
+    not_found = 0
     file_list_to_compare = list()
     for file1 in nc_file_list1:
         filename1 = os.path.basename(file1)
         match_file2 = [file2 for file2 in nc_file_list2 if filename1 in file2]
         if len(match_file2) == 0:
-            debug(f"FAIL File to compare with {file1} NOT FOUND")
+            print(f"{FAIL} No matching found for {file1}")
+            not_found += 1
         else:
             file_list_to_compare += [(file1, file2) for file2 in match_file2]
 
-    return file_list_to_compare
+    return file_list_to_compare, not_found
 
 
-def compare_datasets(file1, file2, variables_to_compare: list):
-    debug("Compare:")
-    debug(f"\t- {file1}")
-    debug(f"\t- {file2}")
-    with xr.open_dataset(file1, decode_cf=False) as dataset1:
-        with xr.open_dataset(file2, decode_cf=False) as dataset2:
+def safe_open_dataset(input_file: str) -> (Optional[xr.Dataset], str):
+    try:
+        return xr.open_dataset(input_file), None
+    except FileNotFoundError:
+        err_msg = "File not found or path is incorrect."
+    except OSError as e:
+        err_msg = f"An OS error occurred: {e}"
+    except ValueError as e:
+        err_msg = f"Value error occurred: {e}"
+    except RuntimeError as e:
+        err_msg = f"Runtime error occurred: {e}"
+    except KeyError as e:
+        err_msg = f"Key error occurred: {e}"
+    except IndexError as e:
+        err_msg = f"Index error occurred: {e}"
+    except Exception as e:
+        err_msg = f"An unexpected error occurred: {e}"
 
-            # keep only float vars
-            if variables_to_compare is None or len(variables_to_compare) == 0:
-                vars_list = []
-                extract_vars(dataset1, vars_list)
-            else:
-                vars_list = variables_to_compare
-            debug(f"Var to check: {vars_list}")
-            # iterate over vars
-            for var in vars_list:
-                debug(f"Checking {var}")
-                if var not in dataset1.data_vars and var not in dataset1.dims:
-                    print(f"FAIL {var} not found in {file1}")
-                    continue
-                else:
-                    field1 = dataset1[var].to_masked_array()
-                if var not in dataset2.data_vars and var not in dataset2.dims:
-                    print(f"FAIL {var} not found in {file2}")
-                    continue
-                else:
-                    field2 = dataset2[var].to_masked_array()
-                if field1.shape == field2.shape:
-                    try:
-                        difference_field = field1 - field2
-                    except np.core._exceptions.UFuncTypeError:
-                        print(
-                            f"FAIL Can't compare {var} in {file1} and in {file2} with different types")
-                        continue
-                else:
-                    print(
-                        f"FAIL Can't compare {var} in {file1} and in {file2} with shapes {field1.shape} {field2.shape}")
-                    continue
-                max_difference = difference_field.max()
-                min_difference = difference_field.min()
-                mask_is_equal = np.array_equal(field1.mask, field2.mask)
-
-                if min_difference == 0 and max_difference == 0 and mask_is_equal:
-                    result = OK_MESSAGE
-                else:
-                    result = FAIL_MESSAGE
-
-                print(result, min_difference, max_difference, mask_is_equal, file1, var, file2, var)
+    # in case of exception
+    return None, err_msg
 
 
-def extract_vars(dataset: xr.Dataset, vars_list):
-    for var_name in dataset.data_vars:
-        var_dtype = dataset[var_name].dtype
-        debug(f"Variable: {var_name}, dtype: {var_dtype}")
-        if var_dtype not in DTYPE_NOT_CHECKED:
-            vars_list.append(var_name)
-    for var_name in dataset.dims:
-        var_dtype = dataset[var_name].dtype
-        debug(f"Variable: {var_name}, dtype: {var_dtype}")
-        if var_dtype not in DTYPE_NOT_CHECKED:
-            vars_list.append(var_name)
+def find_time_dims_name(dims: Iterable) -> str:
+    time_dims_name = [dim for dim in dims if "time" in dim]
+    if len(time_dims_name) == 0:
+        return None
+    if len(time_dims_name) > 1:
+        raise ValueError(f"Found more than 1 time dimension: {', '.join(time_dims_name)}")
+    return time_dims_name.pop()
+
+
+def compare_datasets(file1, file2, variables_to_compare: list, last_time_step: bool) -> List:
+    logger.info(f"Comparing {file1} with {file2}")
+    dataset1, err_msg = safe_open_dataset(file1)
+    if err_msg is not None:
+        return [COMPARE_MESSAGE(description=err_msg)]
+    dataset2, err_msg = safe_open_dataset(file2)
+    if err_msg is not None:
+        return [COMPARE_MESSAGE(description=err_msg)]
+
+    # keep only float vars
+    if variables_to_compare:
+        dataset1_vars_list = variables_to_compare
+    else:
+        dataset1_vars_list, err_msg = get_dataset_variables(dataset1)
+
+    if err_msg is not None:
+        # an error message has been already printed at this point
+        return [COMPARE_MESSAGE(description=err_msg)]
+
+    logger.debug(f"Variables to check: {dataset1_vars_list}")
+
+    result = []
+    for var in dataset1_vars_list:
+        logger.info(f"Checking {var}")
+
+        field1 = dataset1[var]
+
+        # missing variables in comparison file
+        try:
+            field2 = dataset2[var]
+        except Exception as e:
+            result.append(COMPARE_MESSAGE(description=f"cannot read {var} from {file2}: {e}"))
+            continue
+
+        # if last_time_step option is used:
+        # - drop all time steps except last one
+        # - do not compare time variables
+        if last_time_step:
+            time_dims_name = find_time_dims_name(field1.dims)
+            if time_dims_name and field1.shape[0] > 1:
+                field1 = field1.drop_isel({time_dims_name: [t for t in range(field1.shape[0] - 1)]})
+            if time_dims_name and field2.shape[0] > 1:
+                field2 = field2.drop_isel({time_dims_name: [t for t in range(field2.shape[0] - 1)]})
+            if "time" in var:
+                continue
+
+        # dimensions mismatch
+        if field1.shape != field2.shape:
+            result.append(
+                COMPARE_MESSAGE(
+                    description=f"Can't compare {var} in {file1} and in {file2} with shapes {field1.shape} {field2.shape}"
+                )
+            )
+            continue
+
+        array1, mask_array1 = np.array(field1.values), field1.to_masked_array()
+        array2, mask_array2 = np.array(field2.values), field2.to_masked_array()
+
+        # try computing difference
+        try:
+            difference_field: np.ma.MaskedArray = mask_array1 - mask_array2
+        except Exception as e:
+            result.append(
+                COMPARE_MESSAGE(description=f"an unknown error occurs while comparing {var}: {e}")
+            )
+            continue
+
+        # get statistics
+        max_difference = float(difference_field.max())
+        min_difference = float(difference_field.min())
+        mask_is_equal = np.array_equal(mask_array1.mask, mask_array2.mask)
+
+        if min_difference is np.nan and max_difference is np.nan:
+            min_difference = 0
+            max_difference = 0
+            descr = "WARNING all nan values found - comparison is not possible"
+            rel_err = 0
+        else:
+            rel_err = compute_relative_error(difference_field, field2)
+            descr = '-'
+
+        check_result = FAIL
+        if min_difference == 0 and max_difference == 0 and mask_is_equal and rel_err == 0:
+            check_result = PASS
+
+        result.append(
+            COMPARE_MESSAGE(
+                result=check_result,
+                relative_error=f'{rel_err:.2e}',
+                min_diff=f'{min_difference:.2e}',
+                max_diff=f'{max_difference:.2e}',
+                mask_equal=f'{mask_is_equal}',
+                file1=f'{os.path.basename(file1)}',
+                file2=f'{os.path.basename(file2)}',
+                variable=f'{var}',
+                description=descr,
+            )
+        )
+    return result
+
+
+def compute_relative_error(diff: np.ma.MaskedArray, field2: xr.DataArray):
+    diff_no_nan = np.nan_to_num(diff, nan=0)
+    if np.all(diff_no_nan == 00):
+        return 0.0
+
+    if field2.dtype in TIME_DTYPE:
+        field2_values = field2.values.view('int64')
+    else:
+        field2_values = field2.values
+
+    array2_no_nan = np.nan_to_num(field2_values, nan=0)
+    try:
+        # Suppress division by zero and invalid value warnings
+        with np.errstate(divide='ignore', invalid='ignore'):
+            array2_abs = np.abs(array2_no_nan)
+            rel_err = np.max(diff_no_nan / array2_abs)
+    except Exception as e:
+        logger.warning(f"An error occurred when computing relative error: {e}")
+        rel_err = np.nan
+
+    if field2.dtype in TIME_DTYPE:
+        return rel_err / np.timedelta64(1, 's')
+    return rel_err
+
+
+def get_dataset_variables(dataset: xr.Dataset):
+    """Extract all non char/str variables included dimension from a dataset"""
+    variables = []
+    try:
+        variables.extend(
+            [var_name for var_name in dataset.data_vars if dataset[var_name].dtype not in DTYPE_NOT_CHECKED])
+    except Exception as e:
+        return None, f'Cannot extract variables from {dataset}: {e}'
+
+    try:
+        variables.extend([var_name for var_name in dataset.dims if dataset[var_name].dtype not in DTYPE_NOT_CHECKED])
+    except Exception as e:
+        return None, f'Cannot extract dimensions from {dataset}: {e}'
+
+    return variables, None
 
 
 def main(raw_args=None):
@@ -198,23 +353,54 @@ def main(raw_args=None):
     common_pattern = args.common_pattern
     maxdepth = args.maxdepth
     variables_to_compare: list = args.variables
+    verbose_level: int = args.verbose_level
+    last_time_step = args.last_time_step
 
+
+    # read input file list
+    nc_file_list1 = load_file_list(filter_name, folder1, maxdepth)
+    nc_file_list2 = load_file_list(filter_name, folder2, maxdepth)
+
+    # filter file list to compare
+    if common_pattern is None:
+        files_to_compare, not_found = get_file_list_to_compare(nc_file_list1, nc_file_list2)
+    else:
+        files_to_compare, not_found = get_file_list_to_compare_with_match(nc_file_list1, nc_file_list2, common_pattern)
+
+    if len(files_to_compare) == 0:
+        logger.error("No files to compare")
+        exit(1)
+        
+    # start comparison
+    results = []
+    errors_found = not_found
+    for file1, file2 in files_to_compare:
+        df = pd.DataFrame(
+            [],
+            columns=['Result', 'Relative error', 'Min Diff', 'Max Diff', 'Mask Equal', 'Reference File',
+                     'Comparison File', 'Variable', 'Description']
+        )
+        result = compare_datasets(file1, file2, variables_to_compare, last_time_step)
+        for row_data in result:
+            df.loc[len(df)] = list(row_data)
+        df_to_print = df.drop(['Comparison File', 'Reference File'], axis=1)
+        print(f'\n- Reference file: {file1}')
+        print(f'- Comparison file: {file2}')
+        print(df_to_print.to_string(index=False))
+        if (df['Result'] == 'FAILED').any():
+            errors_found += 1
+        results.append(df)
+
+    if errors_found > 0:
+        exit(1)
+
+
+def load_file_list(filter_name, folder1, maxdepth):
     nc_file_list1 = [os.path.join(root, f)
                      for root, dirs, files in walklevel(folder1, maxdepth)
                      for f in files
                      if get_match(filter_name, os.path.join(root, f))]
-    nc_file_list2 = [os.path.join(root, f)
-                     for root, dirs, files in walklevel(folder2, maxdepth)
-                     for f in files
-                     if get_match(filter_name, os.path.join(root, f))]
-
-    if common_pattern is None:
-        files_to_compare = get_file_list_to_compare(nc_file_list1, nc_file_list2)
-    else:
-        files_to_compare = get_file_list_to_compare_with_match(nc_file_list1, nc_file_list2, common_pattern)
-
-    for file1, file2 in files_to_compare:
-        compare_datasets(file1, file2, variables_to_compare)
+    return nc_file_list1
 
 
 if __name__ == "__main__":
