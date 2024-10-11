@@ -74,5 +74,11 @@ function 2fa_juno() {
 
 }
 export -f 2fa_juno
+
+bjobs_stats() {
+    local user="${1:-"$(whoami)"}"
+    bjobs -a -o "jobid job_name run_time start_time exec_host" -u "${user}" |sort
+}
+export -f bjobs_stats
 #brequeue -e # se fallit
 #brequeue
