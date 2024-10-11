@@ -19,4 +19,6 @@ alias guu="git fetch && git pull"
 ## set mamba as default
 alias ccylc="mamba activate myenvcylc_v0.2"
 alias cbase="mamba activate base"
-alias cenv="mamba activate myenv5_v0.1"
+alias cenv="mamba activate myenv5_v0.2"
+alias ctest="mamba activate rofs_testenv_v0.1"
+
