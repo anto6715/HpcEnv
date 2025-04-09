@@ -180,7 +180,7 @@ function yabpc()
         PS1+="\n"
     fi
     PS1+="${Segments[*]}\n"
-    PS1+="${Bold}\$${Reset} "
+    PS1+="${Green}${Bold}\$${Reset} "
 
     PS2="  "
 }
