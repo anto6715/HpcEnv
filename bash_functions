@@ -77,7 +77,7 @@ export -f 2fa_juno
 
 bjobs_stats() {
     local user="${1:-"$(whoami)"}"
-    bjobs -a -o "jobid stat job_name run_time start_time exec_host" -u "${user}" |sort
+    bjobs -a -o "jobid stat job_name run_time start_time finish_time exec_host" -u "${user}" |sort
 }
 export -f bjobs_stats
 
@@ -127,12 +127,12 @@ function yabpc()
     ## Segments
     declare  Segments=(
         # "${White}${Bold}\w${Reset}"
-        "${debian_chroot:+($debian_chroot)}\[\033[01;32m\]\u@\h\[\033[00m\]:\[\033[01;34m\]\w\[\033[00m\]"
+        "${debian_chroot:+($debian_chroot)}${Title}${Bold}${Cyan}\u@\h${Reset} \w"
     )
 
     ## Git
     [ "$(git rev-parse --is-inside-work-tree 2>/dev/null)" == "true" ] && {
-        declare SegmentGit="${Blue}${Bold}${Invert}" \
+        declare SegmentGit="${Green}[" \
                 git_status="" \
                 git_status_ahead="" \
                 git_status_behind="" \
@@ -140,7 +140,7 @@ function yabpc()
                 git_status_untracked="" \
                 git_status_tobecommitted="" \
                 git_status_del=""
-        SegmentGit+=" $(__git_ps1 | tr -d '( )')"
+        SegmentGit+="$(__git_ps1 | tr -d '( )')"
         git_status="$(git status --porcelain --branch)"
         git_status_ahead="$(grep -o -E 'ahead [0-9]+' <<< "$git_status")"
         git_status_behind="$(grep -o -E 'behind [0-9]+' <<< "$git_status")"
@@ -160,17 +160,17 @@ function yabpc()
             SegmentGit+=" M${git_status_mod}"
         [ "$git_status_del" -gt "0" ] &&
             SegmentGit+=" D${git_status_del}"
-        Segments+=("$SegmentGit ${Reset}")
+        Segments+=("${Cyan}${Bold}git:${Reset}$SegmentGit] ${Reset}")
     }
 
     ## Python venv
     [ -n "${VIRTUAL_ENV+x}" ] && {
         Segments+=("${Cyan}${Bold}${Invert} $(basename "$VIRTUAL_ENV") ${Reset}")
     }
-
     ## Conda
     [ -n "${CONDA_PROMPT_MODIFIER+x}" ] && {
-        Segments+=("${Cyan}${Bold}${Invert} ${CONDA_PROMPT_MODIFIER//[\(\) ]/} ${Reset}")
+        # add it to the beginning of the promptstring
+        Segments=("${Green}(${CONDA_PROMPT_MODIFIER//[\(\) ]/})${Reset}" "${Segments[@]}")
     }
 
     PS1="$Title"
@@ -180,7 +180,7 @@ function yabpc()
         PS1+="\n"
     fi
     PS1+="${Segments[*]}\n"
-    PS1+="${Green}${Bold}\$${Reset} "
+    PS1+="${Bold}\$${Reset} "
 
     PS2="  "
 }

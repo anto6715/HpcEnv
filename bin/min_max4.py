@@ -22,12 +22,12 @@ FieldName2=sys.argv[4]
 try:
 	Field1=numpy.ma.asarray(netCDF4.Dataset(FileName1).variables[FieldName1][...])
 except Exception as e:
-	print("FAIL Can't extract {FieldName1} from {FieldName1}")
+	print(f"FAIL Can't extract {FieldName1} from {FileName1}")
 
 try:
 	Field2=numpy.ma.asarray(netCDF4.Dataset(FileName2).variables[FieldName2][...])
 except Exception as e:
-	print("FAIL Can't extract {FieldName2} from {FileName2}")
+	print(f"FAIL Can't extract {FieldName2} from {FileName2}")
 
 result='OK'
 

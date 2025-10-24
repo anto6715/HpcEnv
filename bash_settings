@@ -1,6 +1,5 @@
 #!/bin/bash
 
-PROMPT_COMMAND=yabpc
 
 ######### BASH HISTORY #########
 HISTCONTROL=ignoreboth
