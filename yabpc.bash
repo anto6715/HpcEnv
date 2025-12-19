@@ -1,26 +1,7 @@
-#!/bin/bash
+# see yabpc color declaration
+__prompt_color__="Cyan"
 
-
-function 2fa_juno() {
-    local otp_token; otp_token=$(pass cmcc/juno/authenticator)
-    local second_fact; second_fact=$(oathtool --totp=SHA1 -b "${otp_token}")
-
-    echo "${second_fact}" | xclip -selection clipboard
-    echo "Copied OTP code to clipboard. Will clear in 45 seconds."
-
-    (sleep 45 && echo -n | xclip -selection clipboard &)
-
-}
-export -f 2fa_juno
-
-bjobs_stats() {
-    local user="${1:-"$(whoami)"}"
-    bjobs -a -o "jobid stat job_name run_time start_time finish_time exec_host" -u "${user}" |sort
-}
-export -f bjobs_stats
-
-function yabpc()
-{
+function yabpc() {
     declare  ExitCode="$?"
     ## Title (see Ubuntu's .bashrc file)
     declare     Title="\001\e]2;${debian_chroot:+($debian_chroot)}\u@\h: \w\a\002"
@@ -65,7 +46,7 @@ function yabpc()
     ## Segments
     declare  Segments=(
         # "${White}${Bold}\w${Reset}"
-        "${debian_chroot:+($debian_chroot)}${Title}${Bold}${Cyan}\u@\h${Reset} \w"
+        "${debian_chroot:+($debian_chroot)}${Title}${Bold}${!__prompt_color__}\u@\h${Reset} \w"
     )
 
     ## Git
@@ -121,7 +102,4 @@ function yabpc()
     PS1+="${Bold}\$${Reset} "
 
     PS2="  "
-export -f yabpc
-
-#brequeue -e # se fallit
-#brequeue
+}
