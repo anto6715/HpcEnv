@@ -23,7 +23,7 @@ alias l='ls -CF'
 alias read-permissions="stat --format '%a'"
 
 # use already compiled lazygit
-if [[ ! which lazygit &>/dev/null && -f "/users_home/cmcc/am09320/bin/lazygit" ]]; then
+if ! which lazygit &>/dev/null && [ -f "/users_home/cmcc/am09320/bin/lazygit" ]; then
     alias lazygit="/users_home/cmcc/am09320/bin/lazygit"
 fi
 
