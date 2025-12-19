@@ -1,0 +1,8 @@
+# ide
+.idea
+
+# directories
+__pycache__
+
+# extensions
+*.pyc

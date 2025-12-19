@@ -1,0 +1,40 @@
+#!/usr/bin/expect -f
+
+################################################################################
+##
+## Usage:
+##
+## kerb.exe
+## Description
+## Automatically generate a 24h ssh certificate to connect to JUNO.
+## It relies on pass
+##
+################################################################################
+
+## The names you have defined in your ~/.ssh/config, or the extended verbose
+## hostnames, username included (for instance yourname@login1.juno.cmcc.scc)
+set login1 "juno-login1"
+set login2 "juno-login2"
+
+## If you don't have "pass" installed (but you should!), replace "authenticator"
+## and "factor1" with their actual values
+set authenticator [exec pass cmcc/juno/authenticator]
+set user [exec pass cmcc/juno/user | head -1]
+set factor1 [exec pass cmcc/juno/password | head -1]
+set factor2 [exec oathtool --totp=sha1 -b $authenticator]
+set id_user [exec id -u]
+
+#let pty slave device aware of WINCH signal
+trap {
+ set rows [stty rows]
+ set cols [stty columns]
+ stty rows $rows columns $cols < $spawn_out(slave,name)
+} WINCH
+
+#spawn kinit -n
+spawn kinit -T "FILE:/tmp/krb5cc_$id_user" "${user}"
+expect "Enter OTP Token Value: " {
+    send -- "$factor1$factor2\r"
+}
+
+interact

@@ -1,0 +1,51 @@
+#!/usr/bin/expect -f
+
+################################################################################
+##
+## Usage:
+##
+## Start the vpn:
+## vpn.exp 
+##
+################################################################################
+
+## The names you have defined in your ~/.ssh/config, or the extended verbose
+## hostnames, username included (for instance yourname@login1.juno.cmcc.scc)
+set login1 "juno-login1"
+set login2 "juno-login2"
+
+## If you don't have "pass" installed (but you should!), replace "authenticator"
+## and "factor1" with their actual values
+set authenticator [exec pass cmcc/juno/authenticator]
+set factor1 [exec pass cmcc/juno/password | head -1]
+set factor2 [exec oathtool --totp=sha1 -b $authenticator]
+set juno_user [exec pass cmcc/juno/user]
+set sudo_password [exec pass dell/password]
+
+set timeout 20
+
+set cmd [lindex $argv 0]
+
+
+trap {
+ set rows [stty rows]
+ set cols [stty columns]
+ stty rows $rows columns $cols < $spawn_out(slave,name)
+} WINCH
+
+spawn sudo forcepoint-client 90.147.177.126
+expect "*password for*" {
+    send "$sudo_password\r"
+    expect "*Please enter username*" { 
+    send "$juno_user\r"
+    expect "*Please enter password*" {
+        send "${factor1}${factor2}\r"
+        expect "*Would you like DNS to be configured with it?*" {
+            send "y\r"
+        }
+    }
+
+}
+}
+
+interact

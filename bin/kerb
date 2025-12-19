@@ -1,0 +1,6 @@
+#!/bin/bash
+
+
+# this command seems to have problems if executed by kerb.exp.exo
+kinit -n
+kerb.exp
