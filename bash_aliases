@@ -23,6 +23,10 @@ PROMPT_COMMAND=yabpc
 # Aliases
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+# Move between partitions
+alias myw='cd /work/cmcc/$USER'
+alias myd='cd /data/cmcc/$USER'
+
 # bash cmd
 alias ll='ls -alF'
 alias la='ls -A'
