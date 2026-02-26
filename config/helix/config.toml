@@ -1,0 +1,53 @@
+theme = "nord-night"
+
+[editor]
+cursorline = true
+mouse = true
+color-modes = true
+bufferline = "always" # Enable tab bar at the top
+
+[editor.cursor-shape]
+insert = "bar"
+normal = "block"
+select = "underline"
+
+# File explorer configuration
+[editor.file-picker]
+hidden = false
+parents = false
+
+[editor.soft-wrap]
+enable = true
+
+# Do not render white spaces
+[editor.whitespace]
+render = "none"
+
+[editor.indent-guides]
+render = false
+character = "╎" # Some characters that work well: "▏", "┆", "┊", "⸽"
+skip-levels = 1
+
+# LSP Server configuration
+[editor.lsp]
+display-messages = true
+auto-signature-help	= true
+display-signature-help-docs	= true
+
+[keys.normal]
+C-y = ":sh zellij run -n Yazi -c -f -x 10%% -y 10%% --width 80%% --height 80%% -- bash ~/.config/helix/yazi-picker.sh open %{buffer_name}"
+
+[keys.normal.space]
+y = [
+  ':sh rm -f /tmp/unique-file',
+  ':insert-output yazi "%{buffer_name}" --chooser-file=/tmp/unique-file',
+  ':sh printf "\x1b[?1049h\x1b[?2004h" > /dev/tty',
+  ':open %sh{cat /tmp/unique-file}',
+  ':redraw',
+]
+g = [
+  ":new", 
+  ":insert-output lazygit", 
+  ":buffer-close!", 
+  ":redraw"
+]
