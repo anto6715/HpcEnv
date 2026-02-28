@@ -52,11 +52,59 @@ clone_helix() {
     fi
 }
 
+install_shellcheck() {
+    info "Installing shellcheck..."
+    if hash shellcheck &>/dev/null; then
+        warning "shellcheck already installed"
+    else
+        mkdir /tmp/shellcheck
+        wget https://github.com/koalaman/shellcheck/releases/download/stable/shellcheck-stable.linux.x86_64.tar.xz -P /tmp/shellcheck
+        tar xvf /tmp/shellcheck/shellcheck-stable.linux.x86_64.tar.xz -C /tmp/shellcheck
+        mv /tmp/shellcheck/shellcheck-stable/shellcheck "$HOME/.local/bin"
+    fi
+}
+
+install_nodejs() {
+    info "Installing nodejs..."
+    if hash nodejs &>/dev/null; then
+        warning "nodejs already installed"
+    else
+        # Download and install nvm:
+        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
+        # in lieu of restarting the shell
+        \. "$HOME/.nvm/nvm.sh"
+        # Download and install Node.js:
+        nvm install 24
+        # Verify the Node.js version:
+        node -v # Should print "v24.14.0".
+        # Verify npm version:
+        npm -v # Should print "11.9.0".
+    fi
+}
+
+install_bash_language_server() {
+    info "Installing bash-language-server..."
+    if hash bash-language-server &>/dev/null; then
+        warning "bash-language-server already installed"
+    else
+        npm i -g bash-language-server
+    fi
+}
+
 if [ "$(basename "$0")" = "$(basename "${BASH_SOURCE[0]}")" ]; then
+    # === Rust === #
     install_rust
+
+    # === Python === #
     install_uv
     install_ruff
     install_ty
 
+    # Tools
     clone_helix
+    install_nodejs
+
+    # BASH
+    install_shellcheck
+    install_bash_language_server
 fi
