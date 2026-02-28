@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
- __bash_aliases_path__=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+__bash_aliases_path__=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # PATH
@@ -13,8 +13,8 @@ PATH="$HOME/.local/bin:$PATH"
 # Custom prompt
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 if [ -f "$HOME/.config/bash/yabpc.bash" ]; then
-  . "$HOME/.config/bash/yabpc.bash"
-  PROMPT_COMMAND=yabpc
+    . "$HOME/.config/bash/yabpc.bash"
+    PROMPT_COMMAND=yabpc
 fi
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -29,8 +29,8 @@ fi
 
 ## NVM
 export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm
-[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"                   # This loads nvm
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion" # This loads nvm bash_completion
 
 ## Tilix
 if [ $TILIX_ID ] || [ $VTE_VERSION ]; then
@@ -38,7 +38,7 @@ if [ $TILIX_ID ] || [ $VTE_VERSION ]; then
 fi
 
 ## Kerberos
-export KRB5CCNAME=FILE:/tmp/krb5cc_`id -u`
+export KRB5CCNAME=FILE:/tmp/krb5cc_$(id -u)
 
 ## Helix
 export HELIX_RUNTIME="$HOME/opt/helix/runtime"
@@ -66,14 +66,14 @@ export HISTTIMEFORMAT='%F %T  '
 
 # Sync history safely between sessions
 __history_sync() {
-    history -a        # write new lines
-    history -n        # read new lines
+    history -a # write new lines
+    history -n # read new lines
 }
 
 # Add to PROMPT_COMMAND safely (no duplication)
 case "$PROMPT_COMMAND" in
-    *__history_sync*) ;;
-    *) PROMPT_COMMAND="__history_sync${PROMPT_COMMAND:+; $PROMPT_COMMAND}" ;;
+*__history_sync*) ;;
+*) PROMPT_COMMAND="__history_sync${PROMPT_COMMAND:+; $PROMPT_COMMAND}" ;;
 esac
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -84,12 +84,12 @@ esac
 shopt -s checkwinsize
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-# Conda 
+# Conda
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 [ -f "$HOME/.config/bash/miniforge3.bash" ] && . "$HOME/.config/bash/miniforge3.bash"
 
-# force the export of this function to remove any issue with `conda activate` command 
+# force the export of this function to remove any issue with `conda activate` command
 if which conda &>/dev/null; then
     export -f conda
     export -f __conda_exe
@@ -104,11 +104,11 @@ fi
 
 ## BASH
 if ! shopt -oq posix; then
-  if [ -f /usr/share/bash-completion/bash_completion ]; then
-    . /usr/share/bash-completion/bash_completion
-  elif [ -f /etc/bash_completion ]; then
-    . /etc/bash_completion
-  fi
+    if [ -f /usr/share/bash-completion/bash_completion ]; then
+        . /usr/share/bash-completion/bash_completion
+    elif [ -f /etc/bash_completion ]; then
+        . /etc/bash_completion
+    fi
 fi
 
 ## Git
@@ -121,30 +121,31 @@ fi
 
 bjobs-stats() {
     local user="${1:-"$(whoami)"}"
-    bjobs -a -o "jobid stat job_name run_time start_time finish_time exec_host" -u "${user}" |sort
+    bjobs -a -o "jobid stat job_name run_time start_time finish_time exec_host" -u "${user}" | sort
 }
 export -f bjobs-stats
 
 #
 # # ex - archive extractor
 # # usage: ex <file>
-ex (){
-  if [ -f $1 ] ; then
-    case $1 in
-      *.tar.bz2)   tar xjf $1   ;;
-      *.tar.gz)    tar xzf $1   ;;
-      *.bz2)       bunzip2 $1   ;;
-      *.rar)       unrar x $1     ;;
-      *.gz)        gunzip $1    ;;
-      *.tar)       tar xf $1    ;;
-      *.tbz2)      tar xjf $1   ;;
-      *.tgz)       tar xzf $1   ;;
-      *.zip)       unzip $1     ;;
-      *.Z)         uncompress $1;;
-      *.7z)        7z x $1      ;;
-      *)           echo "'$1' cannot be extracted via ex()" ;;
-    esac
-  else
-    echo "'$1' is not a valid file"
-  fi
+ex() {
+    if [ -f $1 ]; then
+        case $1 in
+        *.tar.bz2) tar xjf $1 ;;
+        *.tar.gz) tar xzf $1 ;;
+        *.tar.xz) tar xvf $1 ;;
+        *.bz2) bunzip2 $1 ;;
+        *.rar) unrar x $1 ;;
+        *.gz) gunzip $1 ;;
+        *.tar) tar xf $1 ;;
+        *.tbz2) tar xjf $1 ;;
+        *.tgz) tar xzf $1 ;;
+        *.zip) unzip $1 ;;
+        *.Z) uncompress $1 ;;
+        *.7z) 7z x $1 ;;
+        *) echo "'$1' cannot be extracted via ex()" ;;
+        esac
+    else
+        echo "'$1' is not a valid file"
+    fi
 }
