@@ -40,6 +40,9 @@ fi
 ## Kerberos
 export KRB5CCNAME=FILE:/tmp/krb5cc_`id -u`
 
+## Helix
+export HELIX_RUNTIME="$HOME/opt/helix/runtime"
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Bash History
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
