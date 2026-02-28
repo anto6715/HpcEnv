@@ -22,7 +22,11 @@ fi
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ## GoLang
-[ -d "$HOME/opt/go/bin" ] && PATH="$PATH:$HOME/opt/go/bin"
+if [ -d "$HOME/opt/go/" ]; then
+    PATH="$PATH:$HOME/opt/go/bin"
+    # equivalent of go env GOEN
+    PATH="$PATH:$HOME/go/bin"
+fi
 
 ## Rust
 [ -d "$HOME/.cargo" ] && . "$HOME/.cargo/env"

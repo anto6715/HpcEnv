@@ -91,6 +91,41 @@ install_bash_language_server() {
     fi
 }
 
+install_yamlfmt() {
+    info "Installing yamlft..."
+    if hash yamlfmt &>/dev/null; then
+        warning "yamlfmt already installed"
+    else
+        go install github.com/google/yamlfmt/cmd/yamlfmt@latest
+    fi
+}
+
+install_yaml_language_server() {
+    info "Installing yaml language server..."
+    if hash yaml-language-server &>/dev/null; then
+        warning "yaml-language-server already installed"
+    else
+        npm i -g yaml-language-server
+    fi
+}
+
+install_golangci_lint() {
+    info "Installing golangci-lint..."
+    if hash golangci-lint &>/dev/null; then
+        warning "golangci-lint already installed"
+    else
+        # binary will be $(go env GOPATH)/bin/golangci-lint
+        curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.10.1
+
+    fi
+    info "Installing ggolangci-lint-langserver..."
+    if hash golangci-lint-langserver &>/dev/null; then
+        warning "golangci-lint-langserver already installed"
+    else
+        go install github.com/nametake/golangci-lint-langserver@latest
+    fi
+}
+
 if [ "$(basename "$0")" = "$(basename "${BASH_SOURCE[0]}")" ]; then
     # === Rust === #
     install_rust
@@ -107,4 +142,12 @@ if [ "$(basename "$0")" = "$(basename "${BASH_SOURCE[0]}")" ]; then
     # BASH
     install_shellcheck
     install_bash_language_server
+
+    # Yaml
+    install_yamlfmt
+    install_yaml_language_server
+
+    # Go
+    install_golangci_lint
+
 fi
