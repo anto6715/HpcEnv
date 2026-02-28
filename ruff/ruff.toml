@@ -1,0 +1,16 @@
+target-version = "py312"
+line-length = 120
+
+[lint]
+select = ["E", "F", "I"]
+
+ignore = ["E501"]
+
+[lint.isort]
+lines-between-types = 1
+lines-after-imports = 1
+
+[format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
