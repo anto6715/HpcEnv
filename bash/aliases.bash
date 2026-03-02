@@ -30,8 +30,8 @@ alias kinit_otp='kinit -n;kinit -T FILE:/tmp/krb5cc_`id -u`'
 alias @="switch_user"
 
 # Conda
-alias @c="conda activate"
-alias @d="conda deactivate"
+alias ca="conda activate"
+alias cnd="conda deactivate"
 
 # Git
 alias g='git'
