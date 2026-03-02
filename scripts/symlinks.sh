@@ -17,42 +17,51 @@ create_symlinks() {
     info "Creating symbolic links..."
 
     # Read dotfile links from the config file
-    while IFS=: read -r source target || [ -n "$source" ]; do
+    while IFS=: read -r raw_source raw_target || [ -n "$raw_source" ]; do
 
         # Skip empty or invalid lines in the config file
-        if [[ -z "$source" || -z "$target" || "$source" == \#* ]]; then
+        if [[ -z "$raw_source" || -z "$raw_target" || "$raw_source" == \#* ]]; then
             continue
         fi
 
         # Evaluate variables
-        source=$(eval echo "$source")
-        target=$(eval echo "$target")
-
-        # Check if the source file exists
-        if [ ! -e "$source" ]; then
-            error "Error: Source file '$source' not found. Skipping link creation for '$target'."
-            continue
-        fi
-
-        # Check if the symbolic link already exists
-        if [ -L "$target" ]; then
-            warning "Symbolic link already exists: $target"
-        elif [ -f "$target" ]; then
-            warning "File already exists: $target"
-        else
-            # Extract the directory portion of the target path
-            target_dir=$(dirname "$target")
-
-            # Check if the target directory exists, and if not, create it
-            if [ ! -d "$target_dir" ]; then
-                mkdir -p "$target_dir"
-                info "Created directory: $target_dir"
+        sources=($(eval echo "$raw_source"))
+        for source in "${sources[@]}"; do
+            source=$(eval echo "$source")
+            # Check if the source file exists
+            if [ ! -e "$source" ]; then
+                error "Error: Source file '$source' not found. Skipping link creation for '$target'."
+                continue
             fi
-
-            # Create the symbolic link
-            ln -s "$source" "$target"
-            success "Created symbolic link: $target"
-        fi
+            
+            # Set target considering wildcard
+            if [[ "$raw_source" =~ \* ]]; then
+                target="$raw_target/$(basename "$source")"
+            else
+                target="$raw_target"
+            fi
+            target=$(eval echo "$target")
+    
+            # Check if the symbolic link already exists
+            if [ -L "$target" ]; then
+                warning "Symbolic link already exists: $target"
+            elif [ -f "$target" ]; then
+                warning "File already exists: $target"
+            else
+                # Extract the directory portion of the target path
+                target_dir=$(dirname "$target")
+    
+                # Check if the target directory exists, and if not, create it
+                if [ ! -d "$target_dir" ]; then
+                    mkdir -p "$target_dir"
+                    info "Created directory: $target_dir"
+                fi
+    
+                # Create the symbolic link
+                ln -s "$source" "$target"
+                success "Created symbolic link: $target"
+            fi
+        done
     done <"$CONFIG_FILE"
 }
 
