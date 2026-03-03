@@ -60,3 +60,13 @@ alias gc='git commit -v'
 alias gcm='git commit -m'
 alias gcmnv='git commit --no-verify -m'
 alias gcanenv='git commit --amend --no-edit --no-verify'
+
+# Zellij
+alias za="zellij attach"
+alias zvpn="zellij attach -c vpn"
+alias zda="zellij delete-all-sessions"
+alias zd="zellij delete-session"
+alias zka="zellij kill-all-sessions"
+alias zk="zellij kill-session"
+alias zl="zellij list-sessions"
+alias zla="zellij list-aliases"
