@@ -7,7 +7,12 @@ __bash_aliases_path__=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 PATH="$HOME/.local/bin:$PATH"
+
+## Kerberos
 [ -d "/usr/local/opt/krb5/bin" ] && PATH="/usr/local/opt/krb5/bin:$PATH"
+
+# OpenCode
+[ -d "$HOME/.opencode/bin" ] && PATH="$PATH:$HOME/.opencode/bin"
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Custom prompt
