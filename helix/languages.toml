@@ -1,3 +1,7 @@
++[[language]]
++name = "yaml"
++auto-format = false
+
 [[language]]
 name = "bash"
 auto-format = false
