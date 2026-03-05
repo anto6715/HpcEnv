@@ -62,6 +62,7 @@ alias gcmnv='git commit --no-verify -m'
 alias gcanenv='git commit --amend --no-edit --no-verify'
 
 # Zellij
+alias z="zellij"
 alias za="zellij attach"
 alias zvpn="zellij attach -c vpn"
 alias zda="zellij delete-all-sessions"
