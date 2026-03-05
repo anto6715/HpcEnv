@@ -14,6 +14,15 @@ install_rust() {
     fi
 }
 
+download_golang() {
+    info "Downloading Go..."
+    if hash go &>/dev/null; then
+        warning "Go already installed"
+    else
+        curl -LsSf https://go.dev/dl/go1.26.0.linux-amd64.tar.gz | tar -C $HOME/opt -xzf -
+    fi
+}
+
 install_uv() {
     info "Installing uv..."
     if hash uv &>/dev/null; then
@@ -126,9 +135,19 @@ install_golangci_lint() {
     fi
 }
 
+install_lazygit() {
+    info "Installing lazygit..."
+    if hash lazygit &>/dev/null; then
+        warning "lazygit already installed"
+    else
+        go install github.com/jesseduffield/lazygit@latest
+    fi
+}
+
 if [ "$(basename "$0")" = "$(basename "${BASH_SOURCE[0]}")" ]; then
-    # === Rust === #
+    # === Languages === #
     install_rust
+    download_golang
 
     # === Python === #
     install_uv
@@ -147,7 +166,8 @@ if [ "$(basename "$0")" = "$(basename "${BASH_SOURCE[0]}")" ]; then
     install_yamlfmt
     install_yaml_language_server
 
-    # Go
+    # GoLang tools
     install_golangci_lint
+    install_lazygit
 
 fi
