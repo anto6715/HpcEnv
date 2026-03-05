@@ -52,3 +52,5 @@ g = [
   ":buffer-close!", 
   ":redraw"
 ]
+n = ":buffer-next"
+N = ":buffer-previous"
