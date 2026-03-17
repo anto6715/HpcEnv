@@ -1,0 +1,19 @@
+#!/bin/bash
+
+# Check if job ID is provided
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 <LSF_job_id>"
+    exit 1
+fi
+
+JOB_ID="$1"
+LOG_FILE="$HOME/.lsbatch"/*".${JOB_ID}.err"
+
+# Check if log file exists
+if [ ! -f $LOG_FILE ]; then
+    echo "Error: Log file not found for job ID ${JOB_ID}"
+    echo "Looking for: $LOG_FILE"
+    exit 1
+fi
+echo "Tailing log file: $LOG_FILE"
+tail -f $LOG_FILE
