@@ -81,31 +81,46 @@ _install_golangci_lint() {
 }
 
 _install_helix() {
-    # Download a pre-built release from GitHub (no sudo / no source build).
-    # Lands in $HOME/opt/helix so its runtime matches the HELIX_RUNTIME that
-    # custom.bash exports ($HOME/opt/helix/runtime); hx is linked onto PATH.
-    local arch tag dir tmp
+    # Install Helix from the conda-forge *binary* (without using conda). The
+    # upstream GitHub binary needs glibc >= 2.29, which is too new for the HPC
+    # nodes; the conda-forge build targets an old sysroot (glibc <= 2.16), links
+    # only system libraries, and finds its bundled runtime relative to itself.
+    # So we just unpack it into $HOME/opt/helix — no conda env, no HELIX_RUNTIME
+    # needed (and $HOME/opt/helix/runtime still matches what custom.bash exports).
+    local subdir
     case "$(uname -m)" in
-        x86_64) arch="x86_64" ;;
-        aarch64 | arm64) arch="aarch64" ;;
+        x86_64) subdir="linux-64" ;;
+        aarch64 | arm64) subdir="linux-aarch64" ;;
         *) error "Unsupported architecture for Helix: $(uname -m)"; return 1 ;;
     esac
 
-    # Resolve the latest release tag via the /releases/latest redirect
-    # (no API token, no jq). Override by exporting HELIX_VERSION.
-    tag="${HELIX_VERSION:-$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
-        https://github.com/helix-editor/helix/releases/latest | sed 's#.*/tag/##')}"
-    [ -n "$tag" ] || { error "Could not resolve latest Helix release"; return 1; }
+    have unzip || { error "Helix install needs 'unzip'"; return 1; }
+    have zstd || { error "Helix install needs 'zstd' (ships with mamba)"; return 1; }
 
-    dir="helix-${tag}-${arch}-linux"
+    # Resolve the conda-forge package URL with curl+grep (no jq).
+    # Override the version by exporting HELIX_VERSION.
+    local ver file url tmp
+    ver="${HELIX_VERSION:-$(curl -fsSL https://api.anaconda.org/package/conda-forge/helix |
+        grep -oE '"latest_version": *"[^"]*"' | grep -oE '[0-9][^"]*')}"
+    [ -n "$ver" ] || { error "Could not resolve latest Helix version"; return 1; }
+    file="$(curl -fsSL https://api.anaconda.org/package/conda-forge/helix/files |
+        grep -oE "${subdir}/helix-${ver}-[^\"]*\.conda" | sort -V | tail -1)"
+    [ -n "$file" ] || { error "No conda-forge Helix build for ${ver}/${subdir}"; return 1; }
+    url="https://conda.anaconda.org/conda-forge/${file}"
+
     tmp="$(mktemp -d)" || return 1
-    if curl -fsSL "https://github.com/helix-editor/helix/releases/download/${tag}/${dir}.tar.xz" |
-        tar -xJ -C "$tmp"; then
+    # A .conda is a zip of zstd tarballs; the binary + runtime live under
+    # libexec/helix/ in the pkg-*.tar.zst member.
+    if curl -fsSL "$url" -o "$tmp/helix.conda" &&
+        unzip -q "$tmp/helix.conda" -d "$tmp" &&
+        tar --use-compress-program=zstd -xf "$tmp"/pkg-*.tar.zst -C "$tmp"; then
         rm -rf "$HOME/opt/helix"
-        mv "$tmp/$dir" "$HOME/opt/helix"
+        mkdir -p "$HOME/opt/helix"
+        mv "$tmp/libexec/helix/hx" "$tmp/libexec/helix/runtime" "$HOME/opt/helix/"
         ln -sfn "$HOME/opt/helix/hx" "$HOME/.local/bin/hx"
         rm -rf "$tmp"
     else
+        error "Helix install failed: $url"
         rm -rf "$tmp"
         return 1
     fi
@@ -148,7 +163,8 @@ main() {
     # === Rust tools === #
     ensure cargo-binstall "cargo-binstall" cargo install cargo-binstall
     ensure rg "ripgrep" cargo binstall -y ripgrep
-    ensure yazi "yazi-fm" cargo binstall -y yazi-fm
+    # musl target -> static binary with no glibc dependency (HPC glibc is old)
+    ensure yazi "yazi-fm" cargo binstall --targets x86_64-unknown-linux-musl -y yazi-fm
 
     # === Python (uv) tools === #
     ensure ruff "ruff" uv tool install ruff@latest
