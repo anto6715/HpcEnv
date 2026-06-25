@@ -88,9 +88,12 @@ _install_golangci_lint() {
 
 activate_rust() { [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"; }
 activate_go() {
+    # Put go on PATH first, then query GOPATH (an unset GOPATH/bin would
+    # otherwise be lost on a fresh install where `go` isn't yet reachable).
+    export PATH="$HOME/opt/go/bin:$PATH"
     local gopath
     gopath="$(go env GOPATH 2>/dev/null)"
-    export PATH="$HOME/opt/go/bin:${gopath}/bin:$PATH"
+    [ -n "$gopath" ] && export PATH="$gopath/bin:$PATH"
 }
 activate_node() {
     export NVM_DIR="$HOME/.nvm"
