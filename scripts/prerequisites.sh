@@ -1,173 +1,175 @@
 #!/usr/bin/env bash
 #
-# Get the absolute path of the directory where the script is located
+# Bootstrap the local toolchain. Idempotent: anything already on PATH is skipped.
+#
+# Adding a tool is a single line in main():
+#     ensure <probe-binary> "<description>" <install command...>
+# e.g.
+#     ensure rg "ripgrep" cargo binstall -y ripgrep
+#
+# Only installers that need a shell pipeline / multiple steps get a dedicated
+# _install_* function; everything else is a plain command passed to ensure.
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-. $SCRIPT_DIR/utils.sh
+. "$SCRIPT_DIR/utils.sh"
 
-install_rust() {
-    info "Installing Rust..."
-    if hash rustc &>/dev/null; then
-        warning "Rust already installed"
+# ---------------------------------------------------------------------------
+# Core helpers
+# ---------------------------------------------------------------------------
+
+# have <binary> -> 0 if it is already on PATH
+have() { command -v "$1" &>/dev/null; }
+
+# ensure <probe-binary> <description> <install-cmd> [args...]
+#   Runs the install command only when <probe-binary> is not already on PATH.
+#   The command is run as real argv (no eval), so quoting is safe; installers
+#   that need a pipeline pass a _install_* function as the command instead.
+ensure() {
+    local probe="$1" desc="$2"
+    shift 2
+    info "Installing ${desc}..."
+    if have "$probe"; then
+        warning "${desc} already installed — skipping"
+        return 0
+    fi
+    if "$@"; then
+        success "${desc} installed"
     else
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+        error "${desc} install FAILED"
+        return 1
     fi
 }
 
-download_golang() {
-    info "Downloading Go..."
-    if hash go &>/dev/null; then
-        warning "Go already installed"
-    else
-        curl -LsSf https://go.dev/dl/go1.26.0.linux-amd64.tar.gz | tar -C $HOME/opt -xzf -
-    fi
+# ---------------------------------------------------------------------------
+# Bespoke installers (pipelines / multi-step) — just the action, no guard
+# ---------------------------------------------------------------------------
+
+_install_rust() {
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 }
 
-install_uv() {
-    info "Installing uv..."
-    if hash uv &>/dev/null; then
-        warning "uv already installed"
-    else
-        curl -LsSf https://astral.sh/uv/install.sh | sh
-    fi
+_install_go() {
+    curl -LsSf https://go.dev/dl/go1.26.0.linux-amd64.tar.gz | tar -C "$HOME/opt" -xzf -
 }
 
-install_ruff() {
-    info "Installing ruff..."
-    if hash ruff &>/dev/null; then
-        warning "ruff already installed"
-    else
-        # use uv to install ruff globally
-        uv tool install ruff@latest
-    fi
+_install_uv() {
+    curl -LsSf https://astral.sh/uv/install.sh | sh
 }
 
-install_ty() {
-    info "Installing typer..."
-    if hash ty &>/dev/null; then
-        warning "typer already installed"
-    else
-        # use uv to install typer globally
-        uv tool install ty@latest
-    fi
-}
-
-clone_helix() {
-    info "Cloning Helix..."
-    if [ -d "$HOME/opt/helix" ]; then
-        warning "Helix already cloned"
-    else
-        git clone https://github.com/helix-editor/helix.git "$HOME/opt/helix"
-    fi
-}
-
-install_shellcheck() {
-    info "Installing shellcheck..."
-    if hash shellcheck &>/dev/null; then
-        warning "shellcheck already installed"
-    else
-        mkdir /tmp/shellcheck
-        wget https://github.com/koalaman/shellcheck/releases/download/stable/shellcheck-stable.linux.x86_64.tar.xz -P /tmp/shellcheck
-        tar xvf /tmp/shellcheck/shellcheck-stable.linux.x86_64.tar.xz -C /tmp/shellcheck
-        mv /tmp/shellcheck/shellcheck-stable/shellcheck "$HOME/.local/bin"
-    fi
-}
-
-install_nodejs() {
-    info "Installing nodejs..."
-    if hash node &>/dev/null; then
-        warning "nodejs already installed"
-    else
-        # Download and install nvm:
-        curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash
-        # in lieu of restarting the shell
-        \. "$HOME/.nvm/nvm.sh"
-        # Download and install Node.js:
+_install_node() {
+    # Download and install nvm, then load it into this shell and install Node.
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash &&
+        \. "$HOME/.nvm/nvm.sh" &&
         nvm install 24
-        # Verify the Node.js version:
-        node -v # Should print "v24.14.0".
-        # Verify npm version:
-        npm -v # Should print "11.9.0".
+}
+
+_install_shellcheck() {
+    local tmp
+    tmp="$(mktemp -d)" || return 1
+    wget -qO- https://github.com/koalaman/shellcheck/releases/download/stable/shellcheck-stable.linux.x86_64.tar.xz |
+        tar -xJ -C "$tmp" &&
+        mv "$tmp/shellcheck-stable/shellcheck" "$HOME/.local/bin/"
+    local rc=$?
+    rm -rf "$tmp"
+    return $rc
+}
+
+_install_golangci_lint() {
+    # binary lands in $(go env GOPATH)/bin/golangci-lint
+    curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.10.1
+}
+
+_install_helix() {
+    # Download a pre-built release from GitHub (no sudo / no source build).
+    # Lands in $HOME/opt/helix so its runtime matches the HELIX_RUNTIME that
+    # custom.bash exports ($HOME/opt/helix/runtime); hx is linked onto PATH.
+    local arch tag dir tmp
+    case "$(uname -m)" in
+        x86_64) arch="x86_64" ;;
+        aarch64 | arm64) arch="aarch64" ;;
+        *) error "Unsupported architecture for Helix: $(uname -m)"; return 1 ;;
+    esac
+
+    # Resolve the latest release tag via the /releases/latest redirect
+    # (no API token, no jq). Override by exporting HELIX_VERSION.
+    tag="${HELIX_VERSION:-$(curl -fsSLI -o /dev/null -w '%{url_effective}' \
+        https://github.com/helix-editor/helix/releases/latest | sed 's#.*/tag/##')}"
+    [ -n "$tag" ] || { error "Could not resolve latest Helix release"; return 1; }
+
+    dir="helix-${tag}-${arch}-linux"
+    tmp="$(mktemp -d)" || return 1
+    if curl -fsSL "https://github.com/helix-editor/helix/releases/download/${tag}/${dir}.tar.xz" |
+        tar -xJ -C "$tmp"; then
+        rm -rf "$HOME/opt/helix"
+        mv "$tmp/$dir" "$HOME/opt/helix"
+        ln -sfn "$HOME/opt/helix/hx" "$HOME/.local/bin/hx"
+        rm -rf "$tmp"
+    else
+        rm -rf "$tmp"
+        return 1
     fi
 }
 
-install_bash_language_server() {
-    info "Installing bash-language-server..."
-    if hash bash-language-server &>/dev/null; then
-        warning "bash-language-server already installed"
-    else
-        npm i -g bash-language-server
-    fi
+# ---------------------------------------------------------------------------
+# Activation: a freshly-installed toolchain's package manager is not yet on
+# PATH in *this* shell (the installer only edited the shell rc files). Source
+# it so the tool installs below can actually run in the same run.
+# ---------------------------------------------------------------------------
+
+activate_rust() { [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"; }
+activate_go() {
+    # Put go on PATH first, then query GOPATH (an unset GOPATH/bin would
+    # otherwise be lost on a fresh install where `go` isn't yet reachable).
+    export PATH="$HOME/opt/go/bin:$PATH"
+    local gopath
+    gopath="$(go env GOPATH 2>/dev/null)"
+    [ -n "$gopath" ] && export PATH="$gopath/bin:$PATH"
+}
+activate_node() {
+    export NVM_DIR="$HOME/.nvm"
+    # shellcheck source=/dev/null
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 }
 
-install_yamlfmt() {
-    info "Installing yamlft..."
-    if hash yamlfmt &>/dev/null; then
-        warning "yamlfmt already installed"
-    else
-        go install github.com/google/yamlfmt/cmd/yamlfmt@latest
-    fi
-}
+# ---------------------------------------------------------------------------
+# Orchestration
+# ---------------------------------------------------------------------------
 
-install_yaml_language_server() {
-    info "Installing yaml language server..."
-    if hash yaml-language-server &>/dev/null; then
-        warning "yaml-language-server already installed"
-    else
-        npm i -g yaml-language-server
-    fi
-}
+main() {
+    mkdir -p "$HOME/.local/bin" "$HOME/opt"
 
-install_golangci_lint() {
-    info "Installing golangci-lint..."
-    if hash golangci-lint &>/dev/null; then
-        warning "golangci-lint already installed"
-    else
-        # binary will be $(go env GOPATH)/bin/golangci-lint
-        curl -sSfL https://golangci-lint.run/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.10.1
+    # === Languages / package managers (must come first, then activate) === #
+    ensure rustc "Rust" _install_rust && activate_rust
+    ensure go "Go" _install_go && activate_go
+    ensure uv "uv" _install_uv
+    ensure node "Node.js" _install_node && activate_node
 
-    fi
-    info "Installing ggolangci-lint-langserver..."
-    if hash golangci-lint-langserver &>/dev/null; then
-        warning "golangci-lint-langserver already installed"
-    else
-        go install github.com/nametake/golangci-lint-langserver@latest
-    fi
-}
+    # === Rust tools === #
+    ensure cargo-binstall "cargo-binstall" cargo install cargo-binstall
+    ensure rg "ripgrep" cargo binstall -y ripgrep
+    ensure yazi "yazi-fm" cargo binstall -y yazi-fm
 
-install_lazygit() {
-    info "Installing lazygit..."
-    if hash lazygit &>/dev/null; then
-        warning "lazygit already installed"
-    else
-        go install github.com/jesseduffield/lazygit@latest
-    fi
+    # === Python (uv) tools === #
+    ensure ruff "ruff" uv tool install ruff@latest
+    ensure ty "ty" uv tool install ty@latest
+    ensure xdiff "xdiffly" uv tool install --python 3.13 xdiffly
+
+    # === Go tools === #
+    ensure yamlfmt "yamlfmt" go install github.com/google/yamlfmt/cmd/yamlfmt@latest
+    ensure golangci-lint "golangci-lint" _install_golangci_lint
+    ensure golangci-lint-langserver "golangci-lint-langserver" go install github.com/nametake/golangci-lint-langserver@latest
+    ensure lazygit "lazygit" go install github.com/jesseduffield/lazygit@latest
+
+    # === Node / npm tools === #
+    ensure bash-language-server "bash-language-server" npm i -g bash-language-server
+    ensure yaml-language-server "yaml-language-server" npm i -g yaml-language-server
+
+    # === Editors / misc === #
+    ensure hx "Helix" _install_helix
+    ensure shellcheck "shellcheck" _install_shellcheck
 }
 
 if [ "$(basename "$0")" = "$(basename "${BASH_SOURCE[0]}")" ]; then
-    # === Languages === #
-    install_rust
-    download_golang
-
-    # === Python === #
-    install_uv
-    install_ruff
-    install_ty
-
-    # Tools
-    clone_helix
-    install_nodejs
-
-    # BASH
-    install_shellcheck
-    install_bash_language_server
-
-    # Yaml
-    install_yamlfmt
-    install_yaml_language_server
-
-    # GoLang tools
-    install_golangci_lint
-    install_lazygit
-
+    main "$@"
 fi

@@ -41,6 +41,39 @@ scripts/symlinks.sh --delete --include-files   # also remove real files at the t
 existing regular file. After editing `symlinks.conf`, re-run `--create` to apply
 the change.
 
+### Adding a tool to the bootstrap
+
+`prerequisites.sh` is driven by a single `ensure` helper, so most tools are one
+line in `main()`:
+
+```bash
+ensure <probe-binary> "<description>" <install command...>
+```
+
+`<probe-binary>` is the command used to detect that the tool is already present
+(install is skipped when it is on `PATH`); the rest is the install command, run
+verbatim. Examples for the common package managers:
+
+```bash
+ensure rg      "ripgrep"  cargo binstall -y ripgrep            # Rust  (cargo)
+ensure ruff    "ruff"     uv tool install ruff@latest          # Python (uv)
+ensure lazygit "lazygit"  go install github.com/jesseduffield/lazygit@latest  # Go
+ensure bash-language-server "bash-language-server" npm i -g bash-language-server  # npm
+```
+
+Guidelines:
+
+- Order matters — a tool's package manager must be installed and activated
+  earlier in `main()` (the language blocks call `activate_rust`/`activate_go`/
+  `activate_node` so `cargo`/`go`/`npm` work in the same run).
+- Only installers that need a shell pipeline or multiple steps (e.g. a
+  `curl … | sh` bootstrap, or downloading and unpacking a release tarball like
+  Helix) get a dedicated `_install_*` function; pass that function name to
+  `ensure` instead of an inline command.
+- `ensure` detects "already installed" by probing a binary on `PATH`. If a tool
+  can't be detected that way, check it inline outside `ensure` (no current tool
+  needs this).
+
 ## Host-local settings
 
 Machine-specific values — secrets, per-host variables, and anything that should
