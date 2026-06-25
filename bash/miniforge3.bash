@@ -17,10 +17,16 @@ if [ -f "$MAMBA_ROOT_PREFIX/etc/profile.d/mamba.sh" ]; then
 fi
 
 # <<< conda initialize <<<
-# 
-# Fix error related to the conda usage
-export -f conda
-export -f __conda_exe
-export -f __conda_activate
-export -f __conda_reactivate
-export -f __conda_hashr
+
+# Force the export of these functions to remove any issue with `conda activate`
+# in subshells. Kept in this file (not in custom.bash) so it stays self-contained
+# and can be dropped as-is into accounts that aren't fully configured.
+# Use `command -v` (not `which`): conda is a shell function the hook defines,
+# which an external `which` cannot see.
+if command -v conda &>/dev/null; then
+    export -f conda
+    export -f __conda_exe
+    export -f __conda_activate
+    export -f __conda_reactivate
+    export -f __conda_hashr
+fi

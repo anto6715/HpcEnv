@@ -44,9 +44,14 @@ create_symlinks() {
     
             # Check if the symbolic link already exists
             if [ -L "$target" ]; then
-                warning "Symbolic link already exists: $target"
-            elif [ -f "$target" ]; then
-                warning "File already exists: $target"
+                if [ "$(readlink "$target")" == "$source" ]; then
+                    warning "Symbolic link already correct: $target"
+                else
+                    ln -sfn "$source" "$target"
+                    success "Updated symbolic link: $target -> $source"
+                fi
+            elif [ -e "$target" ]; then
+                warning "File already exists (skipping): $target"
             else
                 # Extract the directory portion of the target path
                 target_dir=$(dirname "$target")

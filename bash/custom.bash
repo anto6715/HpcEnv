@@ -101,14 +101,8 @@ shopt -s checkwinsize
 
 [ -f "$HOME/.config/bash/miniforge3.bash" ] && . "$HOME/.config/bash/miniforge3.bash"
 
-# force the export of this function to remove any issue with `conda activate` command
-if which conda &>/dev/null; then
-    export -f conda
-    export -f __conda_exe
-    export -f __conda_activate
-    export -f __conda_reactivate
-    export -f __conda_hashr
-fi
+# The `export -f conda ...` workaround lives in miniforge3.bash, kept there so
+# that file is self-contained and can be dropped into accounts as-is.
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # AUTOCOMPLETE
@@ -125,7 +119,7 @@ fi
 
 ## Git
 [ -f "$HOME/.config/bash/git-prompt.sh" ] && . "$HOME/.config/bash/git-prompt.sh"
-[ -f "$HOME/.config/bash/git-completion.sh" ] && . "$HOME/.config/bash/git-completion.sh"
+[ -f "$HOME/.config/bash/git-completion.bash" ] && . "$HOME/.config/bash/git-completion.bash"
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # FUNCTIONS
@@ -170,3 +164,12 @@ function y() {
 	[ "$cwd" != "$PWD" ] && [ -d "$cwd" ] && builtin cd -- "$cwd"
 	rm -f -- "$tmp"
 }
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Host-local overrides
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Machine-specific settings (secrets, per-host variables, etc.) belong in an
+# untracked local.bash so they stay out of version control. Sourced last so it
+# can override anything defined above.
+[ -f "$HOME/.config/bash/local.bash" ] && . "$HOME/.config/bash/local.bash"

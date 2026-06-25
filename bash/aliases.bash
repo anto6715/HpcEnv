@@ -30,8 +30,10 @@ fi
 # Kerberos
 alias kinit_otp='kinit -n;kinit -T FILE:/tmp/krb5cc_`id -u`'
 
-# Change accounts
-alias @="switch_user"
+# Change accounts (switch_user is provided by the HPC cluster environment)
+if [ -n "${HPC_SYSTEM:-}" ]; then
+    alias @="switch_user"
+fi
 
 # Conda
 alias ca="conda activate"
