@@ -163,6 +163,7 @@ main() {
     # === Rust tools === #
     ensure cargo-binstall "cargo-binstall" cargo install cargo-binstall
     ensure rg "ripgrep" cargo binstall -y ripgrep
+    ensure zellij "zellij" cargo binstall -y zellij
     # musl target -> static binary with no glibc dependency (HPC glibc is old)
     ensure yazi "yazi-fm" cargo binstall --targets x86_64-unknown-linux-musl -y yazi-fm
 
