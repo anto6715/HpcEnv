@@ -67,10 +67,12 @@ Guidelines:
   earlier in `main()` (the language blocks call `activate_rust`/`activate_go`/
   `activate_node` so `cargo`/`go`/`npm` work in the same run).
 - Only installers that need a shell pipeline or multiple steps (e.g. a
-  `curl … | sh` bootstrap) get a dedicated `_install_*` function; pass that
-  function name to `ensure` instead of an inline command.
-- Use it for anything whose presence is *not* a binary on `PATH` (e.g. Helix is
-  a `git clone` checked by directory) only as a special case, outside `ensure`.
+  `curl … | sh` bootstrap, or downloading and unpacking a release tarball like
+  Helix) get a dedicated `_install_*` function; pass that function name to
+  `ensure` instead of an inline command.
+- `ensure` detects "already installed" by probing a binary on `PATH`. If a tool
+  can't be detected that way, check it inline outside `ensure` (no current tool
+  needs this).
 
 ## Host-local settings
 
