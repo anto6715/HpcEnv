@@ -75,7 +75,7 @@ install_shellcheck() {
 
 install_nodejs() {
     info "Installing nodejs..."
-    if hash nodejs &>/dev/null; then
+    if hash node &>/dev/null; then
         warning "nodejs already installed"
     else
         # Download and install nvm:

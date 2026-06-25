@@ -12,5 +12,6 @@ fi
 [ -f "$HOME/.config/bash/aliases.bash" ] && . "$HOME/.config/bash/aliases.bash"
 [ -f "$HOME/.config/bash/custom.bash" ] && . "$HOME/.config/bash/custom.bash"
 
-# Custom Prompt
-PROMPT_COMMAND=yabpc
+# The prompt (yabpc) and the cross-session history sync are configured in
+# custom.bash via PROMPT_COMMAND. Do not set PROMPT_COMMAND here: doing so after
+# sourcing custom.bash would overwrite the "__history_sync; yabpc" chain it builds.

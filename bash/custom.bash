@@ -125,7 +125,7 @@ fi
 
 ## Git
 [ -f "$HOME/.config/bash/git-prompt.sh" ] && . "$HOME/.config/bash/git-prompt.sh"
-[ -f "$HOME/.config/bash/git-completion.sh" ] && . "$HOME/.config/bash/git-completion.sh"
+[ -f "$HOME/.config/bash/git-completion.bash" ] && . "$HOME/.config/bash/git-completion.bash"
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # FUNCTIONS
@@ -170,3 +170,12 @@ function y() {
 	[ "$cwd" != "$PWD" ] && [ -d "$cwd" ] && builtin cd -- "$cwd"
 	rm -f -- "$tmp"
 }
+
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+# Host-local overrides
+# ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+# Machine-specific settings (secrets, per-host variables, etc.) belong in an
+# untracked local.bash so they stay out of version control. Sourced last so it
+# can override anything defined above.
+[ -f "$HOME/.config/bash/local.bash" ] && . "$HOME/.config/bash/local.bash"

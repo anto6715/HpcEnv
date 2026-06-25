@@ -17,10 +17,6 @@ if [ -f "$MAMBA_ROOT_PREFIX/etc/profile.d/mamba.sh" ]; then
 fi
 
 # <<< conda initialize <<<
-# 
-# Fix error related to the conda usage
-export -f conda
-export -f __conda_exe
-export -f __conda_activate
-export -f __conda_reactivate
-export -f __conda_hashr
+#
+# The `export -f conda ...` workaround lives in custom.bash, guarded by a
+# `which conda` check so it only runs when conda actually initialized.
