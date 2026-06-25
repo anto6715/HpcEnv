@@ -117,10 +117,12 @@ main() {
     # === Rust tools === #
     ensure cargo-binstall "cargo-binstall" cargo install cargo-binstall
     ensure rg "ripgrep" cargo binstall -y ripgrep
+    ensure yazi "yazi-fm" cargo binstall -y yazi-fm
 
     # === Python (uv) tools === #
     ensure ruff "ruff" uv tool install ruff@latest
     ensure ty "ty" uv tool install ty@latest
+    ensure xdiff "xdiffly" uv tool install --python 3.13 xdiffly
 
     # === Go tools === #
     ensure yamlfmt "yamlfmt" go install github.com/google/yamlfmt/cmd/yamlfmt@latest
