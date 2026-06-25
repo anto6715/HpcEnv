@@ -101,16 +101,8 @@ shopt -s checkwinsize
 
 [ -f "$HOME/.config/bash/miniforge3.bash" ] && . "$HOME/.config/bash/miniforge3.bash"
 
-# force the export of this function to remove any issue with `conda activate` command
-# Use `command -v` (not `which`): conda is a shell function, which an external
-# `which` cannot see, so `export -f` below would otherwise be skipped.
-if command -v conda &>/dev/null; then
-    export -f conda
-    export -f __conda_exe
-    export -f __conda_activate
-    export -f __conda_reactivate
-    export -f __conda_hashr
-fi
+# The `export -f conda ...` workaround lives in miniforge3.bash, kept there so
+# that file is self-contained and can be dropped into accounts as-is.
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # AUTOCOMPLETE
