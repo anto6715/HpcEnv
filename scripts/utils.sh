@@ -1,5 +1,11 @@
 #!/bin/bash
 
+restore_xtrace="false"
+if [[ $- == *x* ]]; then
+    set +x
+    restore_xtrace="true"
+fi
+
 # Color definition using tput
 default_color=$(tput sgr 0)
 red="$(tput setaf 1)"
@@ -23,3 +29,7 @@ error() {
 warning() {
     printf "%s==> %s%s\n" "$yellow" "$1" "$default_color"
 }
+
+if [[ $restore_xtrace == "true" ]]; then
+    set -x
+fi
