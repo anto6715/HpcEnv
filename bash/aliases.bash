@@ -35,10 +35,6 @@ if [ -n "${HPC_SYSTEM:-}" ]; then
     alias @="switch_user"
 fi
 
-# Conda
-alias ca="conda activate"
-alias cnd="conda deactivate"
-
 # Git
 alias g='git'
 alias ga='git add'
@@ -73,3 +69,13 @@ alias zka="zellij kill-all-sessions"
 alias zk="zellij kill-session"
 alias zl="zellij list-sessions"
 alias zla="zellij list-aliases"
+
+# Xdiffly
+alias xdirs="xdiff dirs"
+alias xfiles="xdiff files"
+
+# Conda
+alias ca="conda activate"
+alias cnd="conda deactivate"
+alias ca-pitest="conda activate rofs_testenv_v0.1"
+alias ca-exp="conda activate cylc_ocflow-2.1"
