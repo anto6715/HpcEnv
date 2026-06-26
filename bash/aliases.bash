@@ -4,7 +4,7 @@
 alias lg="lazygit"
 
 # Move between partitions
-if [ "${HPC_SYSTEM:-}" == "juno" ]; then
+if [[ "${HPC_SYSTEM:-}" == "juno" || "${HPC_SYSTEM:-}" == "cassandra" ]]; then
     alias myw='cd /work/cmcc/$USER'
     alias myd='cd /data/cmcc/$USER'
 fi
