@@ -43,6 +43,7 @@ config.background = {
 		opacity = 1,
 	},
 }
+config.warn_about_missing_glyphs = false
 -- config.window_background_opacity = 0.3
 -- config.macos_window_background_blur = 20
 config.keys = {
