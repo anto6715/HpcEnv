@@ -10,3 +10,13 @@ __pycache__
 # files
 package.json
 package-lock.json
+
+# secrets — never commit private keys
+*.private.asc
+*secret*.asc
+*private*.asc
+*.gpg
+*.pgp
+*.key
+id_rsa
+id_ed25519
