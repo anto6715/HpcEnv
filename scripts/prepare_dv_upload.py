@@ -85,19 +85,37 @@ def get_args(raw_args=None) -> Namespace:
     return parse.parse_args(raw_args)
 
 
-def scan(root: Path, freqs: set) -> Dict[Tuple[str, str], Dict[Key, Path]]:
-    """Index the files under root: (freq, file_type) -> key -> path."""
+def log(level: str, msg: str):
+    print(f"[{level}] {msg}", flush=True)
+
+
+def scan(name: str, root: Path, freqs: set) -> Dict[Tuple[str, str], Dict[Key, Path]]:
+    """Index the files of the given frequencies under root: (freq, file_type) -> key -> path."""
     index = defaultdict(dict)
+    n_nc, n_used, other, unparsed = 0, 0, defaultdict(int), []
     for path in sorted(root.rglob("*.nc")):
+        n_nc += 1
         m = FILE_RE.match(path.name)
-        if not m or m["freq"] not in freqs:
+        if not m:
+            unparsed.append(path.name)
+            continue
+        if (m["freq"], m["type"]) not in DATASETS.values():
+            other[f"{m['freq']}-{m['type']}"] += 1
+            continue
+        if m["freq"] not in freqs:
             continue
         key = (m["date"], m["bdate"], m["kind"])
         files = index[(m["freq"], m["type"])]
         if key in files:
-            print(f"WARNING: duplicate {path.name}: using {files[key]}", file=sys.stderr)
+            log("WARN", f"duplicate {path}: using {files[key]}")
             continue
         files[key] = path
+        n_used += 1
+    log("INFO", f"{name} scan of {root}: {n_nc} .nc files, {n_used} used")
+    if other:
+        log("INFO", "  ignored (not a DV dataset): " + ", ".join(f"{k} {n}" for k, n in sorted(other.items())))
+    if unparsed:
+        log("WARN", f"  {len(unparsed)} names not matching {FILE_RE.pattern}, e.g. {', '.join(unparsed[:3])}")
     return index
 
 
@@ -105,62 +123,95 @@ def key_str(key: Key) -> str:
     return f"{key[0]}_b{key[1]}_{key[2]}"
 
 
-def select(datasets: List[str], index, forced: List[str] = None) -> List[Key]:
-    """Pick N_FILES keys present in all the datasets: the most recent ones, or the forced ones."""
+def select(name: str, datasets: List[str], index, forced: List[str] = None) -> Tuple[List[Key], str]:
+    """Pick N_FILES keys present in all the datasets: the most recent ones, or the forced ones.
+
+    Returns (keys, error); error is empty when the selection is valid.
+    """
     sets = {ds: set(index.get(DATASETS[ds], {})) for ds in datasets}
     common = set.intersection(*sets.values())
+    log("INFO", f"{name}: {len(common)} keys common to all {len(datasets)} datasets")
+    for ds, s in sets.items():
+        span = f"{key_str(min(s))} .. {key_str(max(s))}" if s else "-"
+        log("INFO" if s else "WARN", f"  {ds}: {len(s)} files ({span})")
     if forced:
         keys = [tuple(re.fullmatch(r"(\d+)_b(\d{8})_(an|fc)", k).groups()) for k in forced]
         missing = [key_str(k) for k in keys if k not in common]
         if missing:
-            raise SystemExit(f"ERROR: keys not available in all datasets: {' '.join(missing)}")
-        return keys
+            return [], f"{name}: forced keys not available in all datasets: {' '.join(missing)}"
+        return keys, ""
     if len(common) < N_FILES:
-        counts = "\n".join(f"  {ds}: {len(s)} files" for ds, s in sets.items())
-        raise SystemExit(f"ERROR: {len(common)} keys common to all datasets, {N_FILES} needed\n{counts}")
+        return [], f"{name}: {len(common)} keys common to all datasets, {N_FILES} needed"
     # most recent bulletin first, then most recent date, analysis before forecast
-    return sorted(common, key=lambda k: (k[1], k[0], k[2] == "an"), reverse=True)[:N_FILES]
+    return sorted(common, key=lambda k: (k[1], k[0], k[2] == "an"), reverse=True)[:N_FILES], ""
 
 
-def copy(src: Path, dest_dir: Path, dry_run: bool):
+def copy(src: Path, dest_dir: Path, dry_run: bool) -> bool:
+    """Copy src into dest_dir unless already there; True if copied (or would be)."""
     target = dest_dir / src.name
     if target.exists():
-        print(f"  exists, skipped: {target}")
-        return
-    print(f"  {src} -> {dest_dir}/")
+        log("SKIP", f"  exists: {target}")
+        return False
+    log("DRY" if dry_run else "COPY", f"  {src} -> {dest_dir}/")
     if not dry_run:
         dest_dir.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src, target)
+    return True
 
 
 def main(raw_args: List["str"] = None):
     args = get_args(raw_args)
     monthly_dir = args.monthly_dir or args.prod_dir
+    log("INFO", f"Mode: {'DRY-RUN, nothing is copied' if args.dry_run else 'COPY'}")
+    log("INFO", f"static={args.static_dir} prod={args.prod_dir} monthly={monthly_dir} dest={args.dest}")
     for d in (args.static_dir, args.prod_dir, monthly_dir):
         if not d.is_dir():
-            raise SystemExit(f"ERROR: not a directory: {d}")
+            log("ERROR", f"not a directory: {d}")
+            sys.exit(1)
 
+    errors = []
     statics = sorted(args.static_dir.glob(STATIC_PATTERN))
+    log("INFO", f"{args.static_dir}: {len(statics)} static files ({STATIC_PATTERN})")
     if not statics:
-        raise SystemExit(f"ERROR: no {STATIC_PATTERN} in {args.static_dir}")
+        errors.append(f"static: no {STATIC_PATTERN} in {args.static_dir}")
 
     daily = [ds for ds, (freq, _) in DATASETS.items() if freq != MONTHLY_FREQ]
     monthly = [ds for ds, (freq, _) in DATASETS.items() if freq == MONTHLY_FREQ]
-    index = scan(args.prod_dir, {DATASETS[ds][0] for ds in daily})
-    m_index = scan(monthly_dir, {MONTHLY_FREQ})
-    keys = select(daily, index, args.keys)
-    m_keys = select(monthly, m_index)
-    print(f"Keys: {' '.join(key_str(k) for k in keys)}")
-    print(f"Monthly keys: {' '.join(key_str(k) for k in m_keys)}")
+    index = scan("non-monthly", args.prod_dir, {DATASETS[ds][0] for ds in daily})
+    m_index = scan("monthly", monthly_dir, {MONTHLY_FREQ})
+    groups = []
+    for name, datasets, idx, forced in (("non-monthly", daily, index, args.keys), ("monthly", monthly, m_index, None)):
+        keys, error = select(name, datasets, idx, forced)
+        if error:
+            errors.append(error)
+            continue
+        log("INFO", f"{name}: selected keys {' '.join(key_str(k) for k in keys)}")
+        groups.append((datasets, idx, keys))
 
-    print(f"{STATIC_DATASET} ({len(statics)} files)")
-    for src in statics:
-        copy(src, args.dest / STATIC_DATASET, args.dry_run)
-    for datasets, idx, sel in ((daily, index, keys), (monthly, m_index, m_keys)):
-        for ds in datasets:
-            print(f"{ds}_{TAG}")
-            for key in sel:
-                copy(idx[DATASETS[ds]][key], args.dest / f"{ds}_{TAG}", args.dry_run)
+    if errors and not args.dry_run:
+        for e in errors:
+            log("ERROR", e)
+        log("ERROR", "nothing copied; run with -n to see the plan")
+        sys.exit(1)
+
+    n_copied = n_skipped = 0
+    plan = [(STATIC_DATASET, statics)] + [
+        (f"{ds}_{TAG}", [idx[DATASETS[ds]][k] for k in keys]) for datasets, idx, keys in groups for ds in datasets
+    ]
+    for folder, sources in plan:
+        log("INFO", f"{folder} ({len(sources)} files)")
+        for src in sources:
+            if copy(src, args.dest / folder, args.dry_run):
+                n_copied += 1
+            else:
+                n_skipped += 1
+
+    verb = "to copy" if args.dry_run else "copied"
+    log("INFO", f"Summary: {len(plan)} folders, {n_copied} files {verb}, {n_skipped} already present")
+    for e in errors:
+        log("ERROR", e)
+    if errors:
+        sys.exit(1)
 
 
 if __name__ == "__main__":
