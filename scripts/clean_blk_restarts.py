@@ -15,7 +15,7 @@ A run written by the July 2026 code has every file of restart/ hard-linked to th
 only when all the names of a file are removed. The summary gives the space really freed and the files that still
 have another name elsewhere.
 
-Dry-run by default: lists what would be removed, per day and pattern, with a summary. Pass --apply to remove.
+Dry-run by default: lists what would be removed, with sizes and a summary per pattern. Pass --apply to remove.
 A symlink is removed, never its target.
 """
 
@@ -178,8 +178,6 @@ def main(raw_args: Optional[List[str]] = None):
                 log("WARN", f"{day} is kept but restart/{day}T2400 has no NEMO restart")
             continue
 
-        day_count = defaultdict(int)
-        day_size = defaultdict(int)
         for label, path in find(root, day):
             try:
                 stat = path.lstat()
@@ -189,15 +187,11 @@ def main(raw_args: Optional[List[str]] = None):
                 log("ERROR", f"{path}: {err}")
                 errors += 1
                 continue
-            day_count[label] += 1
-            day_size[label] += stat.st_size
+            log("RM" if args.apply else "DRY", f"{path.relative_to(root)} ({human(stat.st_size)})")
+            count[label] += 1
+            size[label] += stat.st_size
             inode = inodes.setdefault((stat.st_dev, stat.st_ino), [stat.st_nlink, 0, stat.st_size])
             inode[1] += 1
-
-        for label in day_count:
-            log("RM" if args.apply else "DRY", f"{day} {label}: {day_count[label]} files, {human(day_size[label])}")
-            count[label] += day_count[label]
-            size[label] += day_size[label]
 
     for folder, pattern in PATTERNS:
         label = label_of(folder, pattern)
