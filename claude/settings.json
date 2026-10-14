@@ -1,5 +1,24 @@
 {
   "permissions": {
-    "defaultMode": "plan"
+    "defaultMode": "auto",
+    "deny": [
+      "Bash(*mail_day.py*)",
+      "Bash(*.thunderbird*)",
+      "Read(~/.thunderbird/**)"
+    ]
+  },
+  "theme": "dark",
+  "modelSettings": {
+    "claude-opus-5-5": {
+      "effortLevel": "xhigh"
+    }
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit",
+        "hooks": [{ "type": "command", "command": "python3 /home/antonio/.claude/hooks/juno_guard.py" }]
+      }
+    ]
   }
 }
