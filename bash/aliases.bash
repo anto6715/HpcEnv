@@ -79,3 +79,7 @@ alias ca="conda activate"
 alias cnd="conda deactivate"
 alias ca-pitest="conda activate rofs_testenv_v0.1"
 alias ca-exp="conda activate cylc_ocflow-2.1"
+
+# Claude
+# This alias sets up an SSH tunnel to the Claude server
+alias claude-ssh='ssh -fN juno-ro'
