@@ -1,0 +1,240 @@
+#! /usr/bin/env bash
+
+################################################################################
+#
+# git wt: worktree containers (bare repository + one worktree per branch).
+# Installed in ~/.local/bin, git runs it as `git wt <command>`.
+#
+#   <dir>/.bare        the only git database (bare clone)
+#   <dir>/.git         one line, "gitdir: ./.bare": git commands work from <dir>
+#   <dir>/<folder>/    one worktree per branch
+#
+# Folder names: the system for long-lived branches (medfs_eas11, bsfs_eas9_cou;
+# `main` for single-system repos). Feature folders: any name (the branch leaf)
+# in a container with one system folder; <system>-<branch leaf> when there are
+# several (medfs_eas11-remove_rndt).
+#
+# 10 2026
+# Antonio Mariani
+#
+################################################################################
+
+
+########################
+#
+# BASH SETTINGS
+#
+########################
+set -o errexit  # abort on nonzero exitstatus
+set -o nounset  # abort on unbound variable
+set -o pipefail # don't hide errors within pipes
+
+
+########################
+#
+# VARIABLES
+#
+########################
+script_name=$(basename "${0}")
+script_dir=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+readonly script_name script_dir
+dry_run="false"
+keep_branches="false"
+
+if [[ -f "${script_dir}/../scripts/utils.sh" ]]; then
+    # shellcheck source-path=SCRIPTDIR source=../scripts/utils.sh
+    . "${script_dir}/../scripts/utils.sh"
+else
+    info() { printf "==> %s\n" "$1"; }
+    success() { printf "==> %s\n" "$1"; }
+    warning() { printf "==> %s\n" "$1"; }
+    error() { printf "==> %s\n" "$1"; }
+fi
+
+
+########################
+#
+# FUNCTIONS
+#
+########################
+main() {
+    local command="${1:-}"
+    [[ $# -gt 0 ]] && shift
+    case "${command}" in
+        init) cmd_init "$@" ;;
+        clean-branches) cmd_clean_branches "$@" ;;
+        "" | -h | --help | help) usage ;;
+        *) error "Unknown command: ${command}"; usage ;;
+    esac
+}
+
+usage() {
+    cat >&2 << HELPMSG
+
+    Usage:  git wt init [OPTIONS] <url> <dir> [<branch>[:<folder>]]...
+            git wt clean-branches [-n] <dir>
+
+    init: create a worktree container in <dir>: a bare clone of <url> in
+    <dir>/.bare, the file <dir>/.git pointing to it, the fetch refspec for all
+    remote branches, and one worktree per <branch> in <dir>/<folder> (default
+    folder: the last part of the branch name), tracking origin/<branch>.
+    Then it runs clean-branches. <dir> may already exist (e.g. a folder that
+    holds old clones of the repo), but must not contain .bare or .git yet.
+
+    clean-branches: a bare clone copies every remote branch as a local branch,
+    frozen at clone time. Remove the local branches that are not checked out
+    in any folder and still point to the same commit as origin/<branch>
+    (nothing is lost: origin/<branch> keeps it). Afterwards
+    "git worktree add <folder> <branch>" creates the branch from
+    origin/<branch> with its upstream set.
+
+    Options:
+        -n, --dry-run         Print what would be done, change nothing
+        -k, --keep-branches   init: skip clean-branches
+        -h, --help            Print this help message (or: git wt help)
+
+    Examples:
+        git wt init git@github.com:CMCC-Foundation/rofs-nemo5.git rofs-nemo5 \\
+            cmcc/assw/fix:main cmcc/assw/med_sst_relaxation
+        git wt clean-branches -n rofs-nemo5
+
+    Afterwards:
+        git -C <dir> fetch --prune                     update origin/* for every folder
+        git -C <dir> worktree add <folder> <branch>   add a folder (tracks origin/<branch>)
+        git -C <dir> worktree list                     list them
+        git -C <dir> worktree remove <folder>          remove one (keeps the branch)
+
+HELPMSG
+    exit 1
+}
+
+run() {
+    # print the command; run it unless --dry-run
+    printf "    %s\n" "$*"
+    [[ "${dry_run}" == "true" ]] || "$@"
+}
+
+folder_of() {
+    # <branch>[:<folder>] -> folder (default: last part of the branch)
+    local spec="$1" branch="${1%%:*}" folder="${1#*:}"
+    [[ "${folder}" == "${spec}" ]] && folder="${branch##*/}"
+    printf "%s" "${folder}"
+}
+
+cmd_init() {
+    local parsed_arguments
+    parsed_arguments=$(getopt -o nkh --long dry-run,keep-branches,help -n "${script_name} init" -- "$@") || usage
+    eval set -- "${parsed_arguments}"
+    while :; do
+        case "$1" in
+            -n | --dry-run) dry_run="true" ;;
+            -k | --keep-branches) keep_branches="true" ;;
+            -h | --help) usage ;;
+            --) shift; break ;;
+            *) printf "Unexpected option: %s\n" "${1}"; usage ;;
+        esac
+        shift
+    done
+    [[ $# -ge 2 ]] || usage
+
+    local url="$1" dir="$2"
+    shift 2
+    if [[ -e "${dir}/.bare" || -e "${dir}/.git" ]]; then
+        error "${dir} already has .bare or .git: not a new container"
+        exit 1
+    fi
+    if [[ -d "${dir}" && -n "$(ls -A "${dir}")" ]]; then
+        warning "${dir} is not empty: its current content is left untouched"
+    fi
+
+    local spec branch folder
+    for spec in "$@"; do
+        folder=$(folder_of "${spec}")
+        if [[ -e "${dir}/${folder}" ]]; then
+            error "${dir}/${folder} already exists: choose another folder (<branch>:<folder>)"
+            exit 1
+        fi
+    done
+
+    [[ "${dry_run}" == "true" ]] && warning "Dry run: nothing is changed"
+    info "Bare clone of ${url} in ${dir}/.bare"
+    run mkdir -p "${dir}"
+    run git clone --bare "${url}" "${dir}/.bare"
+    info "Container: ${dir}/.git points to .bare; fetch every remote branch"
+    printf "    %s\n" "echo 'gitdir: ./.bare' > ${dir}/.git"
+    [[ "${dry_run}" == "true" ]] || echo "gitdir: ./.bare" > "${dir}/.git"
+    run git -C "${dir}" config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
+    run git -C "${dir}" fetch origin
+
+    for spec in "$@"; do
+        branch="${spec%%:*}"
+        folder=$(folder_of "${spec}")
+        info "Worktree ${dir}/${folder} on ${branch}"
+        run git -C "${dir}" worktree add "${folder}" "${branch}"
+        run git -C "${dir}/${folder}" branch --set-upstream-to="origin/${branch}" "${branch}"
+    done
+
+    if [[ "${keep_branches}" == "true" ]]; then
+        warning "Local snapshot branches kept (--keep-branches)"
+    elif [[ "${dry_run}" == "true" ]]; then
+        info "Then: git wt clean-branches ${dir}"
+    else
+        clean_branches "${dir}"
+    fi
+
+    [[ "${dry_run}" == "true" ]] && return 0
+    success "Container ready: ${dir}"
+    git -C "${dir}" worktree list
+}
+
+cmd_clean_branches() {
+    local parsed_arguments
+    parsed_arguments=$(getopt -o nh --long dry-run,help -n "${script_name} clean-branches" -- "$@") || usage
+    eval set -- "${parsed_arguments}"
+    while :; do
+        case "$1" in
+            -n | --dry-run) dry_run="true" ;;
+            -h | --help) usage ;;
+            --) shift; break ;;
+            *) printf "Unexpected option: %s\n" "${1}"; usage ;;
+        esac
+        shift
+    done
+    [[ $# -eq 1 ]] || usage
+    if ! git -C "$1" rev-parse --git-dir > /dev/null 2>&1; then
+        error "$1 is not a git repository or container"
+        exit 1
+    fi
+    clean_branches "$1"
+}
+
+clean_branches() {
+    # remove local branches not checked out and identical to origin/<branch>
+    local dir="$1" ref branch sha origin_sha checked_out removed=0 kept=0
+    checked_out=$(git -C "${dir}" worktree list --porcelain | sed -n 's|^branch ||p')
+    info "Local branches identical to origin/* and not checked out$([[ "${dry_run}" == "true" ]] && echo " (dry run: listed only)")"
+    while read -r ref sha; do
+        branch="${ref#refs/heads/}"
+        if grep -qxF "${ref}" <<< "${checked_out}"; then
+            continue
+        fi
+        origin_sha=$(git -C "${dir}" rev-parse -q --verify "refs/remotes/origin/${branch}" || true)
+        if [[ "${sha}" != "${origin_sha}" ]]; then
+            kept=$((kept + 1))
+            continue
+        fi
+        printf "    %s\n" "${branch}"
+        # update-ref -d with the old value: removes the ref only if it still points to ${sha}
+        [[ "${dry_run}" == "true" ]] || git -C "${dir}" update-ref -d "${ref}" "${sha}"
+        removed=$((removed + 1))
+    done < <(git -C "${dir}" for-each-ref --format='%(refname) %(objectname)' refs/heads)
+    if [[ "${dry_run}" == "true" ]]; then
+        info "${removed} would be removed; ${kept} kept (local commits or no origin/ counterpart)"
+    else
+        success "${removed} removed; ${kept} kept (local commits or no origin/ counterpart)"
+    fi
+}
+
+if [ "$(basename "$0")" = "$(basename "${BASH_SOURCE[0]}")" ]; then
+    main "$@"
+fi
