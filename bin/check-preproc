@@ -1,0 +1,295 @@
+#! /usr/bin/env bash
+
+################################################################################
+#
+# check-preproc: compare the pre-processing outputs of two runs, cycle point by
+# cycle point, before NEMO starts (e.g. a pitest run and the longrun it
+# reproduces). When the inputs NEMO reads are the same in both runs, a
+# difference in the NEMO output comes from the model run, not from the test
+# offline archive.
+#
+# A run is an experiment work dir holding <CYCLE_POINT>/<task>/out: the
+# longrun root, the work/ dir of a pitest run (CMCC_local/<name>/work) or a
+# test offline archive of pre-processed inputs (same layout).
+# For each cycle point and task:
+#   - both out/ dirs must hold the same file names, with no broken link;
+#   - netCDF files (*.nc, *.NC) are compared by content with `xdiff dirs`
+#     (xdiffly, exit 1 when a variable differs): byte identity is not expected
+#     for netCDF files written by two runs;
+#   - the other files (ecmwf2ww's ww3_wind.ascii, prepobs' OBS_TAB.DAT, the
+#     insitu/sla lists) must be byte-identical (cmp); when they differ, the
+#     first lines of the diff are printed.
+# Links are followed: files are compared by content, wherever they point.
+#
+# 10 2026
+# Antonio Mariani
+#
+################################################################################
+
+
+########################
+#
+# BASH SETTINGS
+#
+########################
+set -o errexit  # abort on nonzero exitstatus
+set -o nounset  # abort on unbound variable
+set -o pipefail # don't hide errors within pipes
+
+
+########################
+#
+# VARIABLES
+#
+########################
+script_name=$(basename "${0}")
+script_dir=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+readonly script_name script_dir
+xdiff=${XDIFF:-xdiff}
+diff_lines=${DIFF_LINES:-20}
+tasks="ecmwf2nemo ecmwf2ww lobc sst prepobs"
+workers=""
+task_status=""
+
+if [[ -f "${script_dir}/../scripts/utils.sh" ]]; then
+    # shellcheck source-path=SCRIPTDIR source=../scripts/utils.sh
+    . "${script_dir}/../scripts/utils.sh"
+else
+    info() { printf "==> %s\n" "$1"; }
+    success() { printf "==> %s\n" "$1"; }
+    warning() { printf "==> %s\n" "$1"; }
+    error() { printf "==> %s\n" "$1"; }
+fi
+
+
+########################
+#
+# FUNCTIONS
+#
+########################
+main() {
+    local parsed_arguments
+    parsed_arguments=$(getopt -o t:w:h --long tasks:,workers:,help -n "${script_name}" -- "$@") || usage 2
+
+    eval set -- "${parsed_arguments}"
+    while :; do
+        case "$1" in
+            -t | --tasks) tasks=${2//,/ }; shift ;;
+            -w | --workers) workers=$2; shift ;;
+            -h | --help) usage 0 ;;
+            --) shift; break ;;
+            *) printf "Unexpected option: %s\n" "${1}"; usage 2 ;;
+        esac
+        shift
+    done
+    [[ $# -ge 2 ]] || usage 2
+
+    local ref_root=${1%/} cmp_root=${2%/}
+    shift 2
+    local -a cycle_points=("$@")
+
+    [[ -d ${ref_root} ]] || { error "Reference run not found: ${ref_root}"; exit 2; }
+    [[ -d ${cmp_root} ]] || { error "Comparison run not found: ${cmp_root}"; exit 2; }
+    command -v "${xdiff}" > /dev/null || { error "${xdiff} not found: install xdiffly or set XDIFF"; exit 2; }
+
+    if [[ ${#cycle_points[@]} -eq 0 ]]; then
+        mapfile -t cycle_points < <(common_cycle_points "${ref_root}" "${cmp_root}")
+        [[ ${#cycle_points[@]} -gt 0 ]] || { error "No cycle point in common between the two runs"; exit 2; }
+    fi
+    local cycle_point
+    for cycle_point in "${cycle_points[@]}"; do
+        [[ ${cycle_point} =~ ^[0-9]{8}$ ]] || { error "Not a cycle point (YYYYMMDD): ${cycle_point}"; exit 2; }
+    done
+
+    info "Reference:    ${ref_root}"
+    info "Comparison:   ${cmp_root}"
+    info "Cycle points: ${cycle_points[*]}"
+    info "Tasks:        ${tasks}"
+
+    local -a summary=()
+    local task failed=0
+    for cycle_point in "${cycle_points[@]}"; do
+        for task in ${tasks}; do
+            check_task "${ref_root}/${cycle_point}/${task}/out" "${cmp_root}/${cycle_point}/${task}/out" \
+                "${cycle_point} ${task}"
+            summary+=("$(printf "%-9s %-11s %s" "${cycle_point}" "${task}" "${task_status}")")
+            if [[ ${task_status} != identical ]]; then
+                failed=1
+            fi
+        done
+    done
+
+    echo
+    info "Summary"
+    printf "%s\n" "${summary[@]}"
+    if [[ ${failed} -eq 0 ]]; then
+        success "Pre-processing identical: NEMO reads the same inputs in both runs"
+    else
+        error "Pre-processing differs or is incomplete (details above)"
+    fi
+    return "${failed}"
+}
+
+usage() {
+    cat << HELPMSG
+
+    Usage:  ${script_name} [OPTIONS] REFERENCE_RUN COMPARISON_RUN [CYCLE_POINT...]
+
+    Compare the pre-processing outputs (<CYCLE_POINT>/<task>/out) of two runs
+    before NEMO starts. A run is an experiment work dir: the longrun root, the
+    work/ dir of a pitest run, or a test archive of pre-processed inputs.
+    CYCLE_POINT is YYYYMMDD; default: every cycle point of COMPARISON_RUN that
+    REFERENCE_RUN also has. Run it when the pre-processing of a cycle point is
+    over (nemo_ww started): an out/ dir still being written shows up as
+    different files.
+
+    netCDF files (*.nc, *.NC) are compared by content (xdiff dirs), the others
+    byte by byte (cmp). Links are followed.
+
+    Options:
+        -t, --tasks LIST    Tasks to check, space or comma separated, instead of
+                            the default "ecmwf2nemo ecmwf2ww lobc sst prepobs"
+                            (the inputs NEMO reads). The insitu and sla out/
+                            dirs hold observation lists, which may hold run
+                            paths: e.g. -t insitu,sla
+        -w, --workers N     Run xdiff on N local Dask workers
+        -h, --help          Print this help message
+
+    Environment: XDIFF (default: xdiff), DIFF_LINES (lines of diff printed for a
+    differing text file, default: 20).
+    Exit status: 0 identical, 1 differences or missing outputs, 2 usage error.
+
+    Example (Juno):
+        ${script_name} \\
+            /work/cmcc/r2o-dev/MedFS_EAS11/med_eas11_assw_2023_exp1/longrun_inc \\
+            <rofs-exp>/CMCC_local/med_assw_n5_2023/work
+
+HELPMSG
+    exit "$1"
+}
+
+# Cycle points (YYYYMMDD dirs) of the comparison run that the reference run also has.
+common_cycle_points() {
+    local ref_root=$1 cmp_root=$2 dir cycle_point
+    for dir in "${cmp_root}"/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]/; do
+        cycle_point=$(basename "${dir}")
+        if [[ -d ${dir} && -d ${ref_root}/${cycle_point} ]]; then
+            printf "%s\n" "${cycle_point}"
+        fi
+    done
+}
+
+# Names of the files in a dir (links followed), sorted.
+list_files() {
+    local path
+    for path in "$1"/*; do
+        if [[ -f ${path} ]]; then
+            printf "%s\n" "${path##*/}"
+        fi
+    done | LC_ALL=C sort
+}
+
+# Links in a dir whose target does not exist, as "<side>: <name>".
+broken_links() {
+    local path
+    for path in "$1"/*; do
+        if [[ -L ${path} && ! -e ${path} ]]; then
+            printf "%s: %s\n" "$2" "${path##*/}"
+        fi
+    done
+}
+
+# Print a list of file names under a title, at most 10 of them.
+print_names() {
+    local title=$1
+    shift
+    [[ $# -gt 0 ]] || return 0
+    printf "    %s (%d):\n" "${title}" "$#"
+    printf "        %s\n" "${@:1:10}"
+    if [[ $# -gt 10 ]]; then
+        printf "        ...\n"
+    fi
+}
+
+# Compare one task out/ dir of the two runs and set task_status.
+check_task() {
+    local ref_dir=$1 cmp_dir=$2 label=$3
+    local -a broken only_ref only_cmp common others=() problems=() xdiff_options=()
+    local name pattern output n_nc=0 has_lower=false has_upper=false
+
+    if [[ ! -d ${ref_dir} ]]; then
+        error "${label}: no ${ref_dir}"
+        task_status="missing in reference"
+        return 0
+    fi
+    if [[ ! -d ${cmp_dir} ]]; then
+        warning "${label}: not run yet (no ${cmp_dir})"
+        task_status="not run yet"
+        return 0
+    fi
+
+    # Inventory
+    mapfile -t broken < <(broken_links "${ref_dir}" reference; broken_links "${cmp_dir}" comparison)
+    if [[ ${#broken[@]} -gt 0 ]]; then
+        error "${label}: broken links"
+        print_names "broken" "${broken[@]}"
+        problems+=("broken links")
+    fi
+    mapfile -t only_ref < <(LC_ALL=C comm -23 <(list_files "${ref_dir}") <(list_files "${cmp_dir}"))
+    mapfile -t only_cmp < <(LC_ALL=C comm -13 <(list_files "${ref_dir}") <(list_files "${cmp_dir}"))
+    mapfile -t common < <(LC_ALL=C comm -12 <(list_files "${ref_dir}") <(list_files "${cmp_dir}"))
+    if [[ ${#only_ref[@]} -gt 0 || ${#only_cmp[@]} -gt 0 ]]; then
+        error "${label}: different file names"
+        print_names "only in reference" "${only_ref[@]}"
+        print_names "only in comparison" "${only_cmp[@]}"
+        problems+=("different files")
+    fi
+
+    for name in "${common[@]}"; do
+        case ${name} in
+            *.nc) n_nc=$((n_nc + 1)); has_lower=true ;;
+            *.NC) n_nc=$((n_nc + 1)); has_upper=true ;;
+            *) others+=("${name}") ;;
+        esac
+    done
+
+    # netCDF: content, with xdiff (one call per extension, the filter is case-sensitive)
+    if [[ -n ${workers} ]]; then
+        xdiff_options=(-w "${workers}")
+    fi
+    for pattern in "*.nc" "*.NC"; do
+        if [[ (${pattern} == "*.nc" && ${has_lower} == false) || (${pattern} == "*.NC" && ${has_upper} == false) ]]; then
+            continue
+        fi
+        if ! output=$(COLUMNS=200 "${xdiff}" dirs --no-progress -f "${pattern}" \
+            ${xdiff_options[@]+"${xdiff_options[@]}"} "${ref_dir}" "${cmp_dir}" 2>&1); then
+            error "${label}: netCDF ${pattern} differ (xdiff dirs)"
+            # Only the failures and the summary: the passed comparisons are not needed here.
+            if grep -q "Failed Comparison" <<< "${output}"; then
+                sed -n '/Failed Comparison/,$p' <<< "${output}"
+            else
+                printf "%s\n" "${output}"
+            fi
+            problems+=("netCDF ${pattern} differ")
+        fi
+    done
+
+    # Other files: byte by byte
+    for name in "${others[@]}"; do
+        if ! cmp -s "${ref_dir}/${name}" "${cmp_dir}/${name}"; then
+            error "${label}: ${name} differs"
+            diff "${ref_dir}/${name}" "${cmp_dir}/${name}" | head -n "${diff_lines}" || true
+            problems+=("${name} differs")
+        fi
+    done
+
+    if [[ ${#problems[@]} -eq 0 ]]; then
+        success "${label}: identical (${#common[@]} files: ${n_nc} netCDF, ${#others[@]} other)"
+        task_status=identical
+    else
+        task_status=$(IFS=,; printf "%s" "${problems[*]}")
+        task_status=${task_status//,/, }
+    fi
+}
+
+main "${@}"

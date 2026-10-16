@@ -12,7 +12,7 @@ day-to-day ocean-modeling workflows.
 | Path | Purpose |
 |------|---------|
 | `bash/` | Shell config: `.bashrc`, `aliases.bash`, `custom.bash` (PATH/env/functions), `yabpc.bash` (prompt), `miniforge3.bash` (conda init), git prompt/completion |
-| `bin/` | User commands deployed to `~/.local/bin` (LSF helpers, Kerberos/VPN Expect scripts, `git-wt`, `vault-snapshot`) |
+| `bin/` | User commands deployed to `~/.local/bin` (LSF helpers, Kerberos/VPN Expect scripts, `git-wt`, `vault-snapshot`, `check-preproc`) |
 | `systemd/` | systemd user units deployed to `~/.config/systemd/user` (laptop: hourly `vault-snapshot` timer) |
 | `helix/`, `wezterm/`, `ruff/` | Editor and tool configuration directories |
 | `templates/` | Starter files for new bash/Python scripts |
