@@ -1,0 +1,10 @@
+[Unit]
+Description=Commit my own edits in the CMCC vault and push it to GitLab
+Documentation=file://%h/git/HpcEnv/bin/vault-snapshot
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/vault-snapshot
+# never prompt for a password or passphrase: without the key in the agent the
+# push fails (see the journal) and the next one retries
+Environment=GIT_TERMINAL_PROMPT=0 SSH_ASKPASS_REQUIRE=never

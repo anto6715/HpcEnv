@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly snapshot of the CMCC vault to GitLab
+
+[Timer]
+OnCalendar=hourly
+# run at wake-up/boot if the laptop was off or asleep at the full hour
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,143 @@
+#! /usr/bin/env bash
+
+################################################################################
+#
+# vault-snapshot: commit my own edits in the CMCC Obsidian vault and push the
+# vault to its private GitLab repo (remote origin). Run every hour by the
+# systemd user timer vault-snapshot.timer (systemd/); can be run by hand.
+#
+# Skips a turn (exit 0) while git is busy (a Claude session committing, a
+# merge or rebase) or while a file to commit changed in the last QUIET_MIN
+# minutes (a note being typed, a Claude session's half-done edits; .obsidian/
+# is left out of this check, plugins write there all the time).
+# Never commits .obsidian/graph.json or the workspace files.
+# A failed push (offline) exits non-zero: the commit stays local and the
+# next push sends it.
+#
+# 10 2026
+# Antonio Mariani
+#
+################################################################################
+
+
+########################
+#
+# BASH SETTINGS
+#
+########################
+set -o errexit  # abort on nonzero exitstatus
+set -o nounset  # abort on unbound variable
+set -o pipefail # don't hide errors within pipes
+
+
+########################
+#
+# VARIABLES
+#
+########################
+script_name=$(basename "${0}")
+vault=${VAULT_DIR:-${HOME}/Obsidian/CMCC}
+quiet_min=${QUIET_MIN:-10}
+message="User notes: auto-snapshot"
+# never committed (vault rule: per-device UI state)
+excluded=(
+    ':(exclude).obsidian/graph.json'
+    ':(exclude).obsidian/workspace.json'
+    ':(exclude).obsidian/workspace-mobile.json'
+)
+readonly script_name vault quiet_min message excluded
+dry_run=false
+
+
+########################
+#
+# FUNCTIONS
+#
+########################
+main() {
+    check_args "${@}"
+    cd "${vault}"
+
+    if git_busy || recently_changed; then
+        exit 0
+    fi
+
+    local branch
+    branch=$(git symbolic-ref --short HEAD)
+
+    if [[ "${dry_run}" == true ]]; then
+        GIT_OPTIONAL_LOCKS=0 git status --short -- . "${excluded[@]}"
+        log "dry run: $(git rev-list --count "origin/${branch}..HEAD") commit(s) waiting to be pushed"
+        exit 0
+    fi
+
+    git add --all -- . "${excluded[@]}"
+    if ! git diff --cached --quiet; then
+        git commit --quiet -m "${message}"
+        log "committed $(git rev-parse --short HEAD)"
+    fi
+
+    if [[ -n "$(git rev-list "origin/${branch}..HEAD")" ]]; then
+        git push --quiet origin "${branch}"
+        log "pushed ${branch} to origin"
+    fi
+}
+
+#+++ Functions
+usage() {
+    cat <<HELPMSG
+
+    Usage:  ${script_name} [OPTIONS]
+
+    Commit my own edits in ${vault} as "${message}" and push to origin.
+    Environment: VAULT_DIR (vault), QUIET_MIN (minutes, default 10).
+
+    Options:
+        -n, --dry-run       Show what would be committed and pushed; change nothing
+        -h, --help          Print this help message
+
+HELPMSG
+    exit 1
+}
+
+check_args() {
+    case "${#}:${1:-}" in
+    0:) ;;
+    1:-n | 1:--dry-run) dry_run=true ;;
+    *) usage ;;
+    esac
+}
+
+log() {
+    echo "${script_name}: ${*}"
+}
+
+# true (and logged) while another git command or a merge/rebase is running
+git_busy() {
+    local gitdir state
+    gitdir=$(git rev-parse --git-dir)
+    for state in index.lock MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply; do
+        if [[ -e "${gitdir}/${state}" ]]; then
+            log "skip: git busy (${state})"
+            return 0
+        fi
+    done
+    return 1
+}
+
+# true (and logged) if a file to commit, outside .obsidian/, changed in the
+# last quiet_min minutes; deleted files have no mtime and don't count
+recently_changed() {
+    local cutoff file
+    cutoff=$(($(date +%s) - quiet_min * 60))
+    while IFS= read -r -d '' file; do
+        if [[ -f "${file}" && $(stat -c %Y -- "${file}") -ge ${cutoff} ]]; then
+            log "skip: ${file} changed in the last ${quiet_min} min"
+            return 0
+        fi
+    done < <(git ls-files -z --modified --others --exclude-standard -- . ':(exclude).obsidian')
+    return 1
+}
+#---
+
+main "${@}"
