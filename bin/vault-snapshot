@@ -39,11 +39,10 @@ script_name=$(basename "${0}")
 vault=${VAULT_DIR:-${HOME}/Obsidian/CMCC}
 quiet_min=${QUIET_MIN:-10}
 message="User notes: auto-snapshot"
-# never committed (vault rule: per-device UI state)
+# never committed (vault rule: per-device UI state). The workspace files are
+# in the vault's .gitignore: naming an ignored path here makes git add exit 1
 excluded=(
     ':(exclude).obsidian/graph.json'
-    ':(exclude).obsidian/workspace.json'
-    ':(exclude).obsidian/workspace-mobile.json'
 )
 readonly script_name vault quiet_min message excluded
 dry_run=false
