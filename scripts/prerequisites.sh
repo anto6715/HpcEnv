@@ -1,44 +1,132 @@
 #!/usr/bin/env bash
 #
-# Bootstrap the local toolchain. Idempotent: anything already on PATH is skipped.
+# Install the user toolchain in $HOME (no root needed, so it also runs on Juno).
+# Idempotent: anything already installed is skipped.
+#
+# Usage: prerequisites.sh [--check]
+#   --check  only report what is missing, install nothing
 #
 # Adding a tool is a single line in main():
-#     ensure <probe-binary> "<description>" <install command...>
+#     ensure <probe> "<description>" <install command...>
 # e.g.
 #     ensure rg "ripgrep" cargo binstall -y ripgrep
+# <probe> is a binary looked up on PATH, or a path (containing a /) to an
+# executable. Only installers that need a pipeline / multiple steps get a
+# dedicated _install_* function; everything else is a plain command.
 #
-# Only installers that need a shell pipeline / multiple steps get a dedicated
-# _install_* function; everything else is a plain command passed to ensure.
+# The installers are told not to edit the shell rc files: ~/.bashrc is a link
+# into this repo, and bash/custom.bash already sets up PATH for every tool.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# shellcheck source-path=SCRIPTDIR source=utils.sh
 . "$SCRIPT_DIR/utils.sh"
+
+# System tools every machine must already have (on the laptop install.sh
+# installs them with apt; on Juno they come from the cluster).
+BASE_TOOLS=(cc curl git tar gzip)
+
+GO_VERSION="${GO_VERSION:-1.26.0}"
+MINIFORGE_DIR="$HOME/.miniforge3" # same prefix as bash/miniforge3.bash
+
+CHECK_ONLY=false
+MISSING=() # --check: tools not installed
+FAILED=()  # tools whose install failed or was skipped
 
 # ---------------------------------------------------------------------------
 # Core helpers
 # ---------------------------------------------------------------------------
 
-# have <binary> -> 0 if it is already on PATH
+# have <binary> -> 0 if it is on PATH
 have() { command -v "$1" &>/dev/null; }
 
-# ensure <probe-binary> <description> <install-cmd> [args...]
-#   Runs the install command only when <probe-binary> is not already on PATH.
-#   The command is run as real argv (no eval), so quoting is safe; installers
-#   that need a pipeline pass a _install_* function as the command instead.
+# installed <probe> -> 0 if the binary is on PATH, or the path is executable
+installed() {
+    if [[ "$1" == */* ]]; then
+        [ -x "$1" ]
+    else
+        have "$1"
+    fi
+}
+
+# ensure <probe> <description> <install-cmd> [args...]
+#   Runs the install command only when <probe> is not installed. The command
+#   runs as real argv (no eval), so quoting is safe; installers that need a
+#   pipeline pass a _install_* function instead. A command that is not
+#   available (e.g. cargo after the Rust install failed) is reported as skipped.
 ensure() {
     local probe="$1" desc="$2"
     shift 2
-    info "Installing ${desc}..."
-    if have "$probe"; then
-        warning "${desc} already installed — skipping"
+    if installed "$probe"; then
+        info "${desc}: already installed"
         return 0
     fi
-    if "$@"; then
-        success "${desc} installed"
-    else
-        error "${desc} install FAILED"
+    if $CHECK_ONLY; then
+        warning "${desc}: missing"
+        MISSING+=("$desc")
         return 1
     fi
+    if ! declare -F "$1" >/dev/null && ! have "$1"; then
+        error "${desc}: skipped, '$1' is not available"
+        FAILED+=("$desc")
+        return 1
+    fi
+    info "Installing ${desc}..."
+    if ! "$@"; then
+        error "${desc}: install FAILED"
+        FAILED+=("$desc")
+        return 1
+    fi
+    activate
+    if ! installed "$probe"; then
+        error "${desc}: installed, but '${probe}' is not found afterwards"
+        FAILED+=("$desc")
+        return 1
+    fi
+    success "${desc}: installed"
+}
+
+# check_base_tools -> 0 if every BASE_TOOLS binary is on PATH
+check_base_tools() {
+    local missing=() tool
+    for tool in "${BASE_TOOLS[@]}"; do
+        have "$tool" || missing+=("$tool")
+    done
+    if ((${#missing[@]})); then
+        error "Missing system tools: ${missing[*]}"
+        error "On Debian/Ubuntu run ./install.sh, or: sudo apt install build-essential curl git tar gzip"
+        return 1
+    fi
+    info "System tools: ${BASE_TOOLS[*]} found"
+}
+
+# Architecture names used by the downloads below
+case "$(uname -m)" in
+    x86_64) ARCH="x86_64" GOARCH="amd64" ;;
+    aarch64 | arm64) ARCH="aarch64" GOARCH="arm64" ;;
+    *) ARCH="$(uname -m)" GOARCH="$ARCH" ;;
+esac
+
+# ---------------------------------------------------------------------------
+# Activation: put every toolchain on PATH in *this* shell. The script does not
+# read ~/.bashrc, so without this a tool installed a few lines above (uv,
+# cargo, go...) is not found, and on re-runs installed tools look missing.
+# Safe to call many times.
+# ---------------------------------------------------------------------------
+
+activate() {
+    PATH="$HOME/.local/bin:$PATH"
+    # shellcheck source=/dev/null
+    [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+    [ -x "$HOME/opt/go/bin/go" ] && PATH="$HOME/opt/go/bin:$PATH"
+    have go && PATH="$(go env GOPATH)/bin:$PATH"
+    export NVM_DIR="$HOME/.nvm"
+    # shellcheck source=/dev/null
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    # Appended, so conda's python does not shadow the system one
+    [ -d "$MINIFORGE_DIR/bin" ] && PATH="$PATH:$MINIFORGE_DIR/bin"
+    export PATH
+    hash -r
 }
 
 # ---------------------------------------------------------------------------
@@ -46,31 +134,55 @@ ensure() {
 # ---------------------------------------------------------------------------
 
 _install_rust() {
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+}
+
+_install_cargo_binstall() {
+    # Prebuilt binary into ~/.cargo/bin: no compile, no C toolchain needed
+    curl -L --proto '=https' --tlsv1.2 -sSf \
+        https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
 }
 
 _install_go() {
-    curl -LsSf https://go.dev/dl/go1.26.0.linux-amd64.tar.gz | tar -C "$HOME/opt" -xzf -
+    # Go must be unpacked into an empty dir: a new version over an old one breaks
+    rm -rf "$HOME/opt/go"
+    curl -fLsS "https://go.dev/dl/go${GO_VERSION}.linux-${GOARCH}.tar.gz" | tar -C "$HOME/opt" -xzf -
 }
 
 _install_uv() {
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+    curl -LsSf https://astral.sh/uv/install.sh | env UV_NO_MODIFY_PATH=1 sh
 }
 
+# shellcheck source=/dev/null
 _install_node() {
-    # Download and install nvm, then load it into this shell and install Node.
-    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | bash &&
-        \. "$HOME/.nvm/nvm.sh" &&
+    # Install nvm (PROFILE=/dev/null: don't edit the rc files), load it into
+    # this shell, then install Node.
+    curl -fsSL -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.4/install.sh | PROFILE=/dev/null bash &&
+        export NVM_DIR="$HOME/.nvm" &&
+        \. "$NVM_DIR/nvm.sh" &&
         nvm install 24
 }
 
-_install_shellcheck() {
-    local tmp
+_install_miniforge() {
+    # Batch mode (-b) doesn't run `conda init`: bash/miniforge3.bash does that
+    local tmp rc
     tmp="$(mktemp -d)" || return 1
-    wget -qO- https://github.com/koalaman/shellcheck/releases/download/stable/shellcheck-stable.linux.x86_64.tar.xz |
+    curl -fsSL -o "$tmp/miniforge.sh" \
+        "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-${ARCH}.sh" &&
+        bash "$tmp/miniforge.sh" -b -p "$MINIFORGE_DIR"
+    rc=$?
+    rm -rf "$tmp"
+    return $rc
+}
+
+_install_shellcheck() {
+    local tmp rc
+    have xz || { error "shellcheck install needs 'xz' (apt install xz-utils)"; return 1; }
+    tmp="$(mktemp -d)" || return 1
+    curl -fsSL "https://github.com/koalaman/shellcheck/releases/download/stable/shellcheck-stable.linux.${ARCH}.tar.xz" |
         tar -xJ -C "$tmp" &&
         mv "$tmp/shellcheck-stable/shellcheck" "$HOME/.local/bin/"
-    local rc=$?
+    rc=$?
     rm -rf "$tmp"
     return $rc
 }
@@ -88,14 +200,14 @@ _install_helix() {
     # So we just unpack it into $HOME/opt/helix — no conda env, no HELIX_RUNTIME
     # needed (and $HOME/opt/helix/runtime still matches what custom.bash exports).
     local subdir
-    case "$(uname -m)" in
+    case "$ARCH" in
         x86_64) subdir="linux-64" ;;
-        aarch64 | arm64) subdir="linux-aarch64" ;;
-        *) error "Unsupported architecture for Helix: $(uname -m)"; return 1 ;;
+        aarch64) subdir="linux-aarch64" ;;
+        *) error "Unsupported architecture for Helix: $ARCH"; return 1 ;;
     esac
 
-    have unzip || { error "Helix install needs 'unzip'"; return 1; }
-    have zstd || { error "Helix install needs 'zstd' (ships with mamba)"; return 1; }
+    have unzip || { error "Helix install needs 'unzip' (apt install unzip)"; return 1; }
+    have zstd || { error "Helix install needs 'zstd' (apt install zstd, or the one in Miniforge)"; return 1; }
 
     # Resolve the conda-forge package URL with curl+grep (no jq).
     # Override the version by exporting HELIX_VERSION.
@@ -127,45 +239,54 @@ _install_helix() {
 }
 
 # ---------------------------------------------------------------------------
-# Activation: a freshly-installed toolchain's package manager is not yet on
-# PATH in *this* shell (the installer only edited the shell rc files). Source
-# it so the tool installs below can actually run in the same run.
-# ---------------------------------------------------------------------------
-
-activate_rust() { [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"; }
-activate_go() {
-    # Put go on PATH first, then query GOPATH (an unset GOPATH/bin would
-    # otherwise be lost on a fresh install where `go` isn't yet reachable).
-    export PATH="$HOME/opt/go/bin:$PATH"
-    local gopath
-    gopath="$(go env GOPATH 2>/dev/null)"
-    [ -n "$gopath" ] && export PATH="$gopath/bin:$PATH"
-}
-activate_node() {
-    export NVM_DIR="$HOME/.nvm"
-    # shellcheck source=/dev/null
-    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-}
-
-# ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
 
-main() {
-    mkdir -p "$HOME/.local/bin" "$HOME/opt"
+usage() {
+    echo "Usage: $(basename "$0") [--check]"
+}
 
-    # === Languages / package managers (must come first, then activate) === #
-    ensure rustc "Rust" _install_rust && activate_rust
-    ensure go "Go" _install_go && activate_go
+# summary -> prints what is missing / failed; 1 if anything is
+summary() {
+    if $CHECK_ONLY && ((${#MISSING[@]})); then
+        warning "Missing (${#MISSING[@]}): ${MISSING[*]}"
+        return 1
+    fi
+    if ((${#FAILED[@]})); then
+        error "Failed or skipped (${#FAILED[@]}): ${FAILED[*]}"
+        return 1
+    fi
+    success "Toolchain complete"
+}
+
+main() {
+    case "${1:-}" in
+        "") ;;
+        --check) CHECK_ONLY=true ;;
+        -h | --help) usage; return 0 ;;
+        *) error "Unknown argument '$1'"; usage; return 1 ;;
+    esac
+
+    mkdir -p "$HOME/.local/bin" "$HOME/opt"
+    activate
+
+    if ! check_base_tools && ! $CHECK_ONLY; then
+        return 1
+    fi
+
+    # === Languages / package managers (must come first) === #
+    ensure rustc "Rust" _install_rust
+    ensure go "Go ${GO_VERSION}" _install_go
     ensure uv "uv" _install_uv
-    ensure node "Node.js" _install_node && activate_node
+    ensure node "Node.js" _install_node
+    ensure "$MINIFORGE_DIR/bin/conda" "Miniforge (conda/mamba)" _install_miniforge
 
     # === Rust tools === #
-    ensure cargo-binstall "cargo-binstall" cargo install cargo-binstall
+    ensure cargo-binstall "cargo-binstall" _install_cargo_binstall
     ensure rg "ripgrep" cargo binstall -y ripgrep
     ensure zellij "zellij" cargo binstall -y zellij
     # musl target -> static binary with no glibc dependency (HPC glibc is old)
-    ensure yazi "yazi-fm" cargo binstall --targets x86_64-unknown-linux-musl -y yazi-fm
+    ensure yazi "yazi-fm" cargo binstall --targets "${ARCH}-unknown-linux-musl" -y yazi-fm
 
     # === Python (uv) tools === #
     ensure ruff "ruff" uv tool install ruff@latest
@@ -174,6 +295,7 @@ main() {
 
     # === Go tools === #
     ensure yamlfmt "yamlfmt" go install github.com/google/yamlfmt/cmd/yamlfmt@latest
+    ensure shfmt "shfmt" go install mvdan.cc/sh/v3/cmd/shfmt@latest
     ensure golangci-lint "golangci-lint" _install_golangci_lint
     ensure golangci-lint-langserver "golangci-lint-langserver" go install github.com/nametake/golangci-lint-langserver@latest
     ensure lazygit "lazygit" go install github.com/jesseduffield/lazygit@latest
@@ -185,6 +307,8 @@ main() {
     # === Editors / misc === #
     ensure hx "Helix" _install_helix
     ensure shellcheck "shellcheck" _install_shellcheck
+
+    summary
 }
 
 if [ "$(basename "$0")" = "$(basename "${BASH_SOURCE[0]}")" ]; then
