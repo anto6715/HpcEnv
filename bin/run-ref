@@ -136,6 +136,8 @@ usage() {
     freeze   Create the compact reference DEST_DIR from RUN_DIR and its
              manifest ('diff' files copied, the others as empty placeholders).
              DEST_DIR must not exist; nothing partial is left on error.
+             Then chmod -R a+rX, since compact-reference leaves the top
+             directory in mode 700 (built with mkdtemp and renamed).
              Record first: freeze does not record.
 
     Options:
@@ -251,6 +253,14 @@ cmd_freeze() {
     info "Reference: ${dest_dir}"
     [[ ${dry_run} == true ]] && info "Dry run: nothing is written"
     "${run_manifest}" compact-reference "${args[@]}"
+
+    # compact-reference builds the reference in a tempfile.mkdtemp() directory
+    # (mode 700) and renames it into place, so only the author can enter it;
+    # a reference is read by every account that runs the test cases.
+    if [[ ${dry_run} == false ]]; then
+        chmod -R a+rX "${dest_dir}"
+        info "Readable by everyone (chmod -R a+rX)"
+    fi
 }
 
 # ----------------------------------------------------------------- helpers ---
