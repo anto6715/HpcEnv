@@ -71,7 +71,7 @@ scripts/symlinks.sh --create --backup   # links only
 |------|---------|
 | `install.sh` | Entry point for a new machine (see above) |
 | `bash/` | Shell config: `.bashrc`, `aliases.bash`, `custom.bash` (PATH/env/functions), `yabpc.bash` (prompt), `miniforge3.bash` (conda init), git prompt/completion |
-| `bin/` | Commands linked into `~/.local/bin` on every machine (LSF helpers, Kerberos/VPN Expect scripts, `git-wt`, `vault-snapshot`, `check-preproc`) |
+| `bin/` | Commands linked into `~/.local/bin` on every machine (LSF helpers, Kerberos/VPN Expect scripts, `git-wt`, `vault-snapshot`, `check-preproc`, `run-ref`) |
 | `lib/` | Domain scripts run in place, not installed (Cylc/NEMO run management, netCDF processing, CMEMS delivery, longrun cleanup, accounting) |
 | `scripts/` | Repository setup only: `prerequisites.sh`, `symlinks.sh`, `utils.sh` |
 | `claude/` | Global Claude Code config, linked into `~/.claude/` |

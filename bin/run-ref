@@ -1,0 +1,379 @@
+#! /usr/bin/env bash
+
+################################################################################
+#
+# run-ref: drive rofs-exp's run-manifest tool from the command line on a pitest
+# run directory, outside the test harness. During development there is no
+# frozen reference yet, so the three steps the harness chains (record, compare,
+# freeze) are needed one at a time, on runs picked by hand:
+#
+#   record  RUN_DIR               inventory a run into RUN_DIR/manifest.json
+#   compare REF_DIR RUN_DIR       validate RUN_DIR against REF_DIR (shape, and
+#                                 the 'diff' files byte for byte)
+#   freeze  RUN_DIR DEST_DIR      create the compact reference DEST_DIR from a
+#                                 run judged correct (python -m run_manifest
+#                                 compact-reference)
+#
+# RUN_DIR is the pitest run directory (pitest -w: <rofs-exp>/CMCC_local/<name>),
+# REF_DIR a frozen run directory or a compact reference: both hold manifest.json
+# at the top. The test parameters record needs (SYSTEM_NAME, VALIDATION_SET,
+# TEST_REF_DATE, START_DATE, END_DATE, RUN_MANIFEST_CONDA_ENV) are read from the
+# copy of the test case pitest saves in RUN_DIR/log/<test_case>.ini, or from
+# --ini. The rofs-exp checkout (run_manifest package, validation_set.yaml) is the
+# one the run dir sits in (<rofs-exp>/CMCC_local/<name>), or --repo.
+#
+# Requires the run-manifest conda env (CMCC_local/tools/run_manifest/
+# environment.yaml): RUN_MANIFEST_CONDA_ENV from the .ini, --conda-env, or the
+# RUN_MANIFEST_CONDA_ENV environment variable.
+#
+# 10 2026
+# Antonio Mariani
+#
+################################################################################
+
+
+########################
+#
+# BASH SETTINGS
+#
+########################
+set -o errexit  # abort on nonzero exitstatus
+set -o nounset  # abort on unbound variable
+set -o pipefail # don't hide errors within pipes
+
+
+########################
+#
+# VARIABLES
+#
+########################
+script_name=$(basename "${0}")
+script_dir=$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
+readonly script_name script_dir
+manifest_name="manifest.json"
+ini=""
+repo=""
+conda_env="${RUN_MANIFEST_CONDA_ENV:-}"
+output=""
+report_dir=""
+shape_only=false
+dry_run=false
+
+if [[ -f "${script_dir}/../scripts/utils.sh" ]]; then
+    # shellcheck source-path=SCRIPTDIR source=../scripts/utils.sh
+    . "${script_dir}/../scripts/utils.sh"
+else
+    info() { printf "==> %s\n" "$1"; }
+    success() { printf "==> %s\n" "$1"; }
+    warning() { printf "==> %s\n" "$1"; }
+    error() { printf "==> %s\n" "$1"; }
+fi
+
+
+########################
+#
+# FUNCTIONS
+#
+########################
+main() {
+    [[ $# -ge 1 ]] || usage 2
+    local command=$1
+    shift
+    case "${command}" in
+        -h | --help) usage 0 ;;
+        record | compare | freeze) ;;
+        *) error "Unknown command: ${command}"; usage 2 ;;
+    esac
+
+    local parsed_arguments
+    parsed_arguments=$(getopt -o i:r:e:o:d:sh \
+        --long ini:,repo:,conda-env:,output:,report-dir:,shape-only,dry-run,help \
+        -n "${script_name}" -- "$@") || usage 2
+    eval set -- "${parsed_arguments}"
+    while :; do
+        case "$1" in
+            -i | --ini) ini=$2; shift ;;
+            -r | --repo) repo=${2%/}; shift ;;
+            -e | --conda-env) conda_env=${2%/}; shift ;;
+            -o | --output) output=$2; shift ;;
+            -d | --report-dir) report_dir=$2; shift ;;
+            -s | --shape-only) shape_only=true ;;
+            --dry-run) dry_run=true ;;
+            -h | --help) usage 0 ;;
+            --) shift; break ;;
+            *) printf "Unexpected option: %s\n" "${1}"; usage 2 ;;
+        esac
+        shift
+    done
+
+    "cmd_${command}" "$@"
+}
+
+usage() {
+    cat << HELPMSG
+
+    Usage:  ${script_name} record  [OPTIONS] RUN_DIR
+            ${script_name} compare [OPTIONS] REF_DIR RUN_DIR
+            ${script_name} freeze  [OPTIONS] RUN_DIR DEST_DIR
+
+    Run rofs-exp's run-manifest tool by hand on a pitest run directory
+    (<rofs-exp>/CMCC_local/<name>, the -w of pitest), the three steps the test
+    harness chains, one at a time:
+
+    record   Inventory RUN_DIR into RUN_DIR/manifest.json (nothing is hashed).
+             The parameters come from the test case copy pitest saved in
+             RUN_DIR/log/<test_case>.ini: SYSTEM_NAME, VALIDATION_SET,
+             TEST_REF_DATE (the bulletin date of the manifest), START_DATE and
+             END_DATE (the cycle points, one per day). Overwrites an existing
+             manifest: re-record after a change of validation_set.yaml.
+    compare  Validate RUN_DIR against REF_DIR, a frozen run directory or a
+             compact reference: both must hold manifest.json. Shape (every
+             inventoried file) and content (the files classed 'diff', md5)
+             unless --shape-only. Exit 1 when the run does not reproduce.
+    freeze   Create the compact reference DEST_DIR from RUN_DIR and its
+             manifest ('diff' files copied, the others as empty placeholders).
+             DEST_DIR must not exist; nothing partial is left on error.
+             Record first: freeze does not record.
+
+    Options:
+        -i, --ini FILE        Test case .ini to read the parameters from,
+                              instead of RUN_DIR/log/*.ini (record; also the
+                              conda env for compare and freeze)
+        -r, --repo DIR        rofs-exp checkout holding CMCC_local/tools/
+                              run_manifest and tests/experiment/
+                              validation_set.yaml; default: the one RUN_DIR
+                              sits in (RUN_DIR/../..)
+        -e, --conda-env DIR   Conda env of run-manifest; default:
+                              RUN_MANIFEST_CONDA_ENV from the .ini, then the
+                              environment variable, then 'python' on PATH
+        -o, --output FILE     record: write the manifest here instead of
+                              RUN_DIR/manifest.json (e.g. to try a selector
+                              without touching the run)
+        -d, --report-dir DIR  compare: write report.json, report.html and
+                              diffs/ there (default: console only)
+        -s, --shape-only      compare: inventories only, no file is read
+            --dry-run         freeze: validate the source and report the
+                              expected saving only
+        -h, --help            Print this help message
+
+    Exit status: 0 OK, 1 differences (compare) or tool error, 2 usage error.
+
+    Example (Juno, rofs-exp checkout eas9-perf_analysis):
+        cd /work/cmcc/am09320/codes/rofs-exp/eas9-perf_analysis/CMCC_local
+        ${script_name} record blk_assw_n5_perf_analysis
+        ${script_name} compare blk_assw_n5 blk_assw_n5_perf_analysis -d /tmp/cmp
+        ${script_name} freeze --dry-run blk_assw_n5_perf_analysis \\
+            /data/cmcc/am09320/test_dataset/rofs-exp/pull/879/bsfs_eas9/CMCC_local/blk_assw_n5
+
+HELPMSG
+    exit "$1"
+}
+
+# ---------------------------------------------------------------- commands ---
+
+cmd_record() {
+    [[ $# -eq 1 ]] || usage 2
+    local run_dir
+    run_dir=$(run_dir_of "$1")
+    local run_ini
+    run_ini=$(ini_of "${run_dir}")
+    resolve_repo "${run_dir}"
+    resolve_conda_env "${run_ini}"
+
+    local system_name validation_set ref_date start_date end_date
+    system_name=$(ini_get "${run_ini}" SYSTEM_NAME)
+    validation_set=$(ini_get "${run_ini}" VALIDATION_SET)
+    ref_date=$(ini_get "${run_ini}" TEST_REF_DATE)
+    start_date=$(ini_get "${run_ini}" START_DATE)
+    end_date=$(ini_get "${run_ini}" END_DATE)
+    local key
+    for key in SYSTEM_NAME VALIDATION_SET TEST_REF_DATE START_DATE END_DATE; do
+        [[ -n $(ini_get "${run_ini}" "${key}") ]] || { error "${key} not set in ${run_ini}"; exit 2; }
+    done
+    [[ ${start_date} =~ ^[0-9]{8}$ && ${end_date} =~ ^[0-9]{8}$ ]] ||
+        { error "START_DATE/END_DATE must be YYYYMMDD: ${start_date} ${end_date}"; exit 2; }
+    local points
+    points=$(cycle_points "${start_date}" "${end_date}")
+    [[ -n ${output} ]] || output="${run_dir}/${manifest_name}"
+
+    info "Run dir:        ${run_dir}"
+    info "Test case:      ${run_ini}"
+    info "Validation set: ${validation_set} (${repo}/CMCC_local/tests/experiment/validation_set.yaml)"
+    info "System:         ${system_name}, bulletin date ${ref_date}, cycle points ${points}"
+    run_manifest record --base-dir "${run_dir}" \
+        --selector "${repo}/CMCC_local/tests/experiment/validation_set.yaml" \
+        --validation-set "${validation_set}" \
+        --system-name "${system_name}" \
+        --bulletin-date "${ref_date}" \
+        --cycle-points "${points}" \
+        --output "${output}"
+}
+
+cmd_compare() {
+    [[ $# -eq 2 ]] || usage 2
+    local ref_dir run_dir
+    ref_dir=$(run_dir_of "$1")
+    run_dir=$(run_dir_of "$2")
+    local ref_manifest="${ref_dir}/${manifest_name}" run_manifest="${run_dir}/${manifest_name}"
+    [[ -f ${ref_manifest} ]] || { error "Reference manifest not found: ${ref_manifest}"; exit 2; }
+    [[ -f ${run_manifest} ]] || { error "Run manifest not found: ${run_manifest} (run '${script_name} record' first)"; exit 2; }
+    resolve_repo "${run_dir}" "${ref_dir}"
+    resolve_conda_env "$(ini_of "${run_dir}" optional)"
+
+    local -a args=(--reference "${ref_manifest}" --candidate "${run_manifest}")
+    if [[ ${shape_only} == true ]]; then
+        info "Comparing inventories only"
+    else
+        args+=(--reference-dir "${ref_dir}" --candidate-dir "${run_dir}")
+    fi
+    [[ -n ${report_dir} ]] && args+=(--report-dir "${report_dir}")
+
+    info "Reference: ${ref_dir}"
+    info "Run:       ${run_dir}"
+    if run_manifest compare "${args[@]}"; then
+        success "The run reproduces the reference"
+    else
+        error "The run does not reproduce the reference${report_dir:+ (see ${report_dir}/report.html)}"
+        return 1
+    fi
+}
+
+cmd_freeze() {
+    [[ $# -eq 2 ]] || usage 2
+    local run_dir dest_dir
+    run_dir=$(run_dir_of "$1")
+    dest_dir=${2%/}
+    local run_manifest="${run_dir}/${manifest_name}"
+    [[ -f ${run_manifest} ]] || { error "Run manifest not found: ${run_manifest} (run '${script_name} record' first)"; exit 2; }
+    [[ ! -e ${dest_dir} ]] || { error "Destination already exists: ${dest_dir}"; exit 2; }
+    resolve_repo "${run_dir}"
+    resolve_conda_env "$(ini_of "${run_dir}" optional)"
+
+    local -a args=(--source-dir "${run_dir}" --manifest "${run_manifest}" --destination-dir "${dest_dir}")
+    [[ ${dry_run} == true ]] && args+=(--dry-run)
+
+    info "Run dir:   ${run_dir}"
+    info "Reference: ${dest_dir}"
+    [[ ${dry_run} == true ]] && info "Dry run: nothing is written"
+    run_manifest compact-reference "${args[@]}"
+}
+
+# ----------------------------------------------------------------- helpers ---
+
+# Absolute path of a run directory argument; fails when it is not a directory.
+run_dir_of() {
+    local dir=${1%/}
+    [[ -d ${dir} ]] || { error "Not a directory: ${dir}"; exit 2; }
+    cd "${dir}" && pwd
+}
+
+# The test case .ini of a run: --ini, else the single copy pitest saved in
+# RUN_DIR/log/. With "optional" an absent copy is not an error (empty result).
+ini_of() {
+    local run_dir=$1 mode=${2:-required}
+    if [[ -n ${ini} ]]; then
+        [[ -f ${ini} ]] || { error "Test case not found: ${ini}"; exit 2; }
+        echo "${ini}"
+        return
+    fi
+    local -a found=()
+    local file
+    for file in "${run_dir}"/log/*.ini; do
+        [[ -f ${file} ]] && found+=("${file}")
+    done
+    case ${#found[@]} in
+        1) echo "${found[0]}" ;;
+        0) [[ ${mode} == optional ]] || { error "No test case copy in ${run_dir}/log/: pass --ini"; exit 2; } ;;
+        *) error "More than one .ini in ${run_dir}/log/ (${found[*]##*/}): pass --ini"; exit 2 ;;
+    esac
+}
+
+# Raw value of KEY in the [Environment] section of an .ini, quotes stripped.
+ini_raw() {
+    local file=$1 key=$2 value
+    value=$(sed -n -E "/^\[Environment\]/,/^\[/{s/^[[:space:]]*${key}[[:space:]]*=[[:space:]]*//p}" "${file}" | head -n 1)
+    value=${value%%[[:space:]]#*}       # trailing comment
+    value=${value%"${value##*[![:space:]]}"}
+    value=${value#\"}; value=${value%\"}
+    value=${value#\'}; value=${value%\'}
+    printf "%s" "${value}"
+}
+
+# Value of KEY with its $VAR / ${VAR} references expanded from the same .ini
+# (e.g. TEST_REF_DATE = "${BULLETIN_DATE}"), then from the environment, then
+# empty: pitest's own variables (SOURCE_DIR, DATA_DIR...) are not known here.
+ini_get() {
+    local file=$1 key=$2 value name replacement
+    local re='\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?'
+    value=$(ini_raw "${file}" "${key}")
+    local guard=0
+    while [[ ${value} =~ ${re} ]] && (( guard++ < 20 )); do
+        name=${BASH_REMATCH[1]}
+        replacement=$(ini_raw "${file}" "${name}")
+        [[ -n ${replacement} ]] || replacement=${!name:-}
+        value=${value//"${BASH_REMATCH[0]}"/${replacement}}
+    done
+    printf "%s" "${value}"
+}
+
+# Comma separated cycle points, one per day from START to END (as the harness).
+cycle_points() {
+    local current=$1 end=$2
+    local -a points=()
+    while [[ ${current} -le ${end} ]]; do
+        points+=("${current}")
+        current=$(date -d "${current} +1 day" +%Y%m%d)
+    done
+    local IFS=,
+    echo "${points[*]}"
+}
+
+# The rofs-exp checkout: --repo, else the first of the given run dirs whose
+# grandparent holds CMCC_local/tools/run_manifest (run dir = <repo>/CMCC_local/<name>).
+resolve_repo() {
+    local dir candidate
+    if [[ -z ${repo} ]]; then
+        for dir in "$@"; do
+            candidate=$(cd "${dir}/../.." && pwd)
+            if [[ -d ${candidate}/CMCC_local/tools/run_manifest ]]; then
+                repo=${candidate}
+                break
+            fi
+        done
+    fi
+    [[ -n ${repo} ]] || { error "rofs-exp checkout not found above $*: pass --repo"; exit 2; }
+    [[ -d ${repo}/CMCC_local/tools/run_manifest/run_manifest ]] ||
+        { error "No CMCC_local/tools/run_manifest in ${repo}"; exit 2; }
+    [[ -f ${repo}/CMCC_local/tests/experiment/validation_set.yaml ]] ||
+        { error "No CMCC_local/tests/experiment/validation_set.yaml in ${repo}"; exit 2; }
+}
+
+# The conda env of run-manifest: --conda-env / RUN_MANIFEST_CONDA_ENV in the
+# environment (already in conda_env), else the .ini's RUN_MANIFEST_CONDA_ENV.
+resolve_conda_env() {
+    local file=$1
+    if [[ -z ${conda_env} && -n ${file} ]]; then
+        conda_env=$(ini_get "${file}" RUN_MANIFEST_CONDA_ENV)
+    fi
+    if [[ -n ${conda_env} ]]; then
+        [[ -x ${conda_env}/bin/python ]] || { error "No python in conda env ${conda_env}"; exit 2; }
+    else
+        command -v python > /dev/null || { error "python not found: pass --conda-env"; exit 2; }
+        warning "No run-manifest conda env given: using $(command -v python)"
+    fi
+}
+
+# python -m run_manifest from the repo's tool dir, with the env's interpreter.
+run_manifest() {
+    local python="python"
+    [[ -n ${conda_env} ]] && python="${conda_env}/bin/python"
+    PYTHONPATH="${repo}/CMCC_local/tools/run_manifest" "${python}" -m run_manifest "$@"
+}
+
+
+########################
+#
+# MAIN
+#
+########################
+main "$@"
