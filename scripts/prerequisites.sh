@@ -296,7 +296,7 @@ main() {
     # over ssh, pinned to one branch. After a change of the package there:
     #   uv tool upgrade run-manifest
     ensure run-manifest "run-manifest" uv tool install --python 3.13 \
-        "run-manifest @ git+ssh://git@github.com/CMCC-Foundation/rofs-exp@cmcc/bsfs_assw/fix#subdirectory=CMCC_local/tools/run_manifest"
+        "run-manifest @ git+ssh://git@github.com/CMCC-Foundation/rofs-exp@cmcc/med_assw/fix#subdirectory=CMCC_local/tools/run_manifest"
 
     # === Go tools === #
     ensure yamlfmt "yamlfmt" go install github.com/google/yamlfmt/cmd/yamlfmt@latest
