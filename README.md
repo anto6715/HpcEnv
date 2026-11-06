@@ -43,6 +43,32 @@ GitHub allows few requests per hour, and it then waits and retries (403
 messages, slow install). Export a token (no scopes needed) first to avoid it:
 `export GITHUB_TOKEN=<token>`.
 
+### GPG key and `pass` store
+
+The Kerberos/VPN helpers read credentials from `pass`. The store is the
+private repo `anto6715/pass`, encrypted to the GPG key in
+`.gpgpub/pubkey.asc` (`D55CCD47236AE429`). Restoring it needs the private
+key backup (an armored export, `privkey.asc`) and the SSH key for GitHub:
+
+```bash
+gpg --import privkey.asc    # asks for the passphrase, now or at the first decrypt
+echo "BAD6A2ED15F63D5BCC47B652D55CCD47236AE429:6:" | gpg --import-ownertrust
+git clone git@github.com:anto6715/pass.git ~/.password-store
+pass show cmcc/juno/user >/dev/null && echo "decrypt OK"
+```
+
+The `--import-ownertrust` line marks the key as your own; otherwise gpg
+treats it as untrusted when `pass insert` encrypts to it. `pass` commits
+every change but never pushes: run `pass git push` after adding or editing
+an entry, or the backup won't have it.
+
+To test the backup without touching a working setup, run the same commands
+in a shell where both point to throwaway directories:
+
+```bash
+export GNUPGHOME=$(mktemp -d) PASSWORD_STORE_DIR=$(mktemp -d)
+```
+
 ### Profiles
 
 The machine profile decides which system packages and links apply:
@@ -169,7 +195,8 @@ the config is safe to deploy on a machine where they are absent.
 
 Several scripts read credentials through [`pass`](https://www.passwordstore.org/)
 (entries under `cmcc/juno/*`) together with `oathtool` for OTP — restore the
-GPG key and the password store before using the Kerberos/VPN helpers.
+GPG key and the password store before using the Kerberos/VPN helpers (see
+[GPG key and `pass` store](#gpg-key-and-pass-store)).
 
 ## Conventions
 
