@@ -10,7 +10,8 @@
 # merge or rebase) or while a file to commit changed in the last QUIET_MIN
 # minutes (a note being typed, a Claude session's half-done edits; .obsidian/
 # is left out of this check, plugins write there all the time).
-# Never commits .obsidian/graph.json or the workspace files.
+# Never commits .obsidian/graph.json or the workspace files: they are in the
+# vault's .gitignore (graph.json since 2026-11-09).
 # A failed push (offline) exits non-zero: the commit stays local and the
 # next push sends it.
 #
@@ -39,12 +40,10 @@ script_name=$(basename "${0}")
 vault=${VAULT_DIR:-${HOME}/Obsidian/CMCC}
 quiet_min=${QUIET_MIN:-10}
 message="User notes: auto-snapshot"
-# never committed (vault rule: per-device UI state). The workspace files are
-# in the vault's .gitignore: naming an ignored path here makes git add exit 1
-excluded=(
-    ':(exclude).obsidian/graph.json'
-)
-readonly script_name vault quiet_min message excluded
+# The per-device UI files (workspace*.json, graph.json) are left out by the
+# vault's .gitignore. Do not name them in a pathspec, not even as
+# ':(exclude)…': git add exits 1 on an ignored path and errexit stops the run.
+readonly script_name vault quiet_min message
 dry_run=false
 
 
@@ -65,12 +64,12 @@ main() {
     branch=$(git symbolic-ref --short HEAD)
 
     if [[ "${dry_run}" == true ]]; then
-        GIT_OPTIONAL_LOCKS=0 git status --short -- . "${excluded[@]}"
+        GIT_OPTIONAL_LOCKS=0 git status --short
         log "dry run: $(git rev-list --count "origin/${branch}..HEAD") commit(s) waiting to be pushed"
         exit 0
     fi
 
-    git add --all -- . "${excluded[@]}"
+    git add --all
     if ! git diff --cached --quiet; then
         git commit --quiet -m "${message}"
         log "committed $(git rev-parse --short HEAD)"
