@@ -83,3 +83,10 @@ alias ca-exp="conda activate cylc_ocflow-2.1"
 # Claude
 # This alias sets up an SSH tunnel to the Claude server
 alias claude-ssh='ssh -fN juno-ro'
+alias claude-personal='CLAUDE_CONFIG_DIR=~/.claude-personal claude'
+
+# Android Studio
+alias studio='$HOME/opt/android-studio/bin/studio'
+
+# Cylc
+alias cylc-gui-juno='cylc gui --new --no-browser -y --ServerApp.allow_remote_access=true --ServerApp.ip=0.0.0.0'

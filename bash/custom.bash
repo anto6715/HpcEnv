@@ -55,6 +55,12 @@ export HELIX_RUNTIME="$HOME/opt/helix/runtime"
 ## Yazi
 export EDITOR=hx
 
+## Flutter
+[ -d "$HOME/opt/flutter" ] && PATH="$PATH:$HOME/opt/flutter/bin"
+
+## Android
+[ -d "$HOME/Android/Sdk/platform-tools" ] && export PATH="$HOME/Android/Sdk/platform-tools:$PATH"
+
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # Bash History
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
